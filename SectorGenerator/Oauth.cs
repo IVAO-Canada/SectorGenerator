@@ -16,7 +16,7 @@ internal class Oauth : IDisposable
 		_endpoint.Start();
 	}
 
-	public async Task<JsonObject> GetOpenIdAsync()
+	public async Task<JsonObject> GetOpenIdFromBrowserAsync()
 	{
 		string code;
 		HttpListenerContext context;
@@ -28,7 +28,7 @@ internal class Oauth : IDisposable
 
 		context = await _endpoint.GetContextAsync();
 		if (context.Request.QueryString["code"] is not string tmpCode)
-			return await GetOpenIdAsync();
+			return await GetOpenIdFromBrowserAsync();
 
 		code = HttpUtility.UrlEncode(tmpCode);
 		string html = @"<!DOCTYPE html>
@@ -51,7 +51,22 @@ internal class Oauth : IDisposable
 		if (JsonNode.Parse(await resp.Content.ReadAsStringAsync()) is JsonObject retval)
 			return retval;
 		else
-			return await GetOpenIdAsync();
+			return await GetOpenIdFromBrowserAsync();
+	}
+
+	public async Task<JsonObject> GetOpenIdFromDivisionKeyAsync(string divisionSecret)
+	{
+		var resp = await _http.PostAsync("https://api.ivao.aero/v2/oauth/token", JsonContent.Create(new
+		{
+			grant_type = "authorization_code",
+			redirect_uri = "http://localhost:22125/",
+			client_id = "48f0f536-4640-4e3c-a8d2-aa44e9bb4454",
+			client_secret = divisionSecret
+		}));
+		if (JsonNode.Parse(await resp.Content.ReadAsStringAsync()) is JsonObject retval)
+			return retval;
+		else
+			return await GetOpenIdFromBrowserAsync();
 	}
 
 	public void Dispose()

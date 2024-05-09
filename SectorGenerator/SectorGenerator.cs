@@ -14,11 +14,17 @@ using static SectorGenerator.Helpers;
 
 Config config = File.Exists("config.json") ? JsonSerializer.Deserialize<Config>(File.ReadAllText("config.json")) : Config.Default;
 
-if (config.IvaoApiToken is null)
+string apiToken;
+if ((config.IvaoApiSecret ?? Environment.GetEnvironmentVariable("IVAO_SECRET")) is string apiSecret &&
+	(config.IvaoApiRefresh ?? Environment.GetEnvironmentVariable("IVAO_REFRESH")) is string apiRefresh)
+{
+	apiToken = apiSecret;
+}
+else
 {
 	Console.Write("Getting IVAO API token...");
 	using Oauth oauth = new();
-	config.IvaoApiToken = (await oauth.GetOpenIdAsync())["access_token"]!.GetValue<string>();
+	apiToken = (await oauth.GetOpenIdFromBrowserAsync())["access_token"]!.GetValue<string>();
 	Console.WriteLine(" Done!");
 }
 
@@ -78,7 +84,7 @@ Console.Write("Getting ATC positions...");
 
 using (Spinner.Default)
 {
-	var atcPositions = await GetAtcPositionsAsync(config.IvaoApiToken, "K");
+	var atcPositions = await GetAtcPositionsAsync(apiToken, "K");
 	positionArtccs = [..atcPositions.Select(p => {
 		string facility = p["airportId"]!.GetValue<string>();
 

@@ -10,7 +10,9 @@ public struct Config
 
 	public string? BoundaryFilePath { get; set; }
 
-	public string? IvaoApiToken { get; set; }
+	public string? IvaoApiRefresh { get; set; }
+
+	public string? IvaoApiSecret { get; set; }
 
 	public Dictionary<string, string[]> SectorAdditionalAirports { get; set; }
 
@@ -19,7 +21,8 @@ public struct Config
 		OutputFolder = @"C:\Program Files\IVAO\Aurora\SectorFiles",
 		PbfPath = @".\us-latest.osm.pbf",
 		BoundaryFilePath = null,
-		IvaoApiToken = null,
+		IvaoApiRefresh = null,
+		IvaoApiSecret = null,
 		SectorAdditionalAirports = []
 	};
 }
