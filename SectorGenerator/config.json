@@ -1,0 +1,9 @@
+{
+	"OutputFolder": "C:\\Program Files\\IVAO\\Aurora\\SectorFiles",
+	"PbfPath": ".\\us-latest.osm.pbf",
+	"BoundaryFilePath": null,
+	"IvaoApiToken": null,
+	"SectorAdditionalAirports": {
+		"ZLA": ["KPHX"]
+	}
+}
