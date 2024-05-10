@@ -16,9 +16,8 @@ Config config = File.Exists("config.json") ? JsonSerializer.Deserialize<Config>(
 
 Console.Write("Getting IVAO API token...");
 string apiToken, apiRefreshToken;
-using (Spinner.Default)
+using (Oauth oauth = new())
 {
-	using Oauth oauth = new();
 	JsonNode jsonNode;
 	if ((config.IvaoApiRefresh ?? Environment.GetEnvironmentVariable("IVAO_REFRESH")) is string apiRefresh)
 		jsonNode = await oauth.GetOpenIdFromRefreshTokenAsync(apiRefresh);
@@ -49,11 +48,7 @@ foreach (var (artcc, shape) in artccWebeyeShapes)
 	File.WriteAllText(Path.ChangeExtension(Path.Join("webeye", artcc), "txt"), shape);
 
 Console.Write("Downloading CIFPs from the FAA...");
-CIFP cifp;
-
-using (Spinner.Default)
-	cifp = CIFP.Load();
-
+CIFP cifp = CIFP.Load();
 Console.WriteLine(" Done!");
 
 Console.Write("Parsing mapping data from OSM...");
@@ -85,27 +80,22 @@ foreach (var (artcc, points) in artccBoundaries)
 Console.WriteLine(" Done!");
 
 Console.Write("Getting ATC positions...");
-(JsonObject Position, string Artcc)[] positionArtccs;
+var atcPositions = await GetAtcPositionsAsync(apiToken, "K", faaArtccs.Select(a => "K" + a));
+(JsonObject Position, string Artcc)[] positionArtccs = [..atcPositions.Select(p => {
+	string facility = p["composePosition"]!.GetValue<string>().Split("_")[0];
 
-using (Spinner.Default)
-{
-	var atcPositions = await GetAtcPositionsAsync(apiToken, "K", faaArtccs.Select(a => "K" + a));
-	positionArtccs = [..atcPositions.Select(p => {
-		string facility = p["composePosition"]!.GetValue<string>().Split("_")[0];
-
-		if (facility.StartsWith("KZ"))
-			return (p, facility[1..]);
-		else if (TraconCenters.TryGetValue(facility, out string? artcc))
-			return (p, artcc);
-		else if (!centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == facility)))
-		{
-			Console.WriteLine(facility);
-			return (p, "KZZZ");
-		}
-		else
-			return (p, centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == facility)).Key);
-	})];
-}
+	if (facility.StartsWith("KZ"))
+		return (p, facility[1..]);
+	else if (TraconCenters.TryGetValue(facility, out string? artcc))
+		return (p, artcc);
+	else if (!centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == facility)))
+	{
+		Console.WriteLine(facility);
+		return (p, "KZZZ");
+	}
+	else
+		return (p, centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == facility)).Key);
+})];
 
 Console.WriteLine(" Done!");
 
@@ -152,174 +142,154 @@ Osm apBoundaries = osm.GetFiltered(g =>
 	g["abandoned"] is null
 );
 
-IDictionary<string, Osm> apOsms;
-Dictionary<string, Way[]> artccOsmOnlyIcaos;
-using (Spinner.Default)
-{
-	apOsms = osm.GetFiltered(item => item is not Node n || n["aeroway"] is "holding_position").Group(
-		apBoundaries.Ways.Values
-			.Concat(apBoundaries.Relations.Values.Where(r => r.Members.Any(m => m is Way))
-			.SelectMany(r => r.Members.Where(i => i is Way w).Select(w => (Way)w with { Tags = w.Tags.Append(new("icao", r["icao"]!)).ToFrozenDictionary() })))
-			.Select(w => (w["icao"], w))
-			.OrderBy(kvp => kvp.w.Tags.ContainsKey("military") ? 1 : 0)
-			.DistinctBy(kvp => kvp.Item1)
-			.Where(kvp => kvp.Item1 is not null)
-			.ToDictionary(kvp => kvp.Item1!, kvp => kvp.w),
-		30
-	);
+IDictionary<string, Osm> apOsms = osm.GetFiltered(item => item is not Node n || n["aeroway"] is "holding_position").Group(
+	apBoundaries.Ways.Values
+		.Concat(apBoundaries.Relations.Values.Where(r => r.Members.Any(m => m is Way))
+		.SelectMany(r => r.Members.Where(i => i is Way w).Select(w => (Way)w with { Tags = w.Tags.Append(new("icao", r["icao"]!)).ToFrozenDictionary() })))
+		.Select(w => (w["icao"], w))
+		.OrderBy(kvp => kvp.w.Tags.ContainsKey("military") ? 1 : 0)
+		.DistinctBy(kvp => kvp.Item1)
+		.Where(kvp => kvp.Item1 is not null)
+		.ToDictionary(kvp => kvp.Item1!, kvp => kvp.w),
+	30
+);
 
-	artccOsmOnlyIcaos =
-		apBoundaries.GetFiltered(apb => !cifp.Aerodromes.ContainsKey(apb["icao"]!)).Group(
-			artccBoundaries.ToDictionary(b => b.Key, b => new Way(0, [.. b.Value.Select(n => new Node(0, n.Latitude, n.Longitude, FrozenDictionary<string, string>.Empty))], FrozenDictionary<string, string>.Empty))
-		).ToDictionary(
-			kvp => kvp.Key,
-			kvp => kvp.Value.Ways.Values.Concat(kvp.Value.Relations.Values
-				.Where(v => v.Members.Any(m => m is Way))
-				.Select(v => (Way)v.Members.MaxBy(m => m is Way w ? w.Nodes.Length : -1)! with { Tags = v.Tags })).ToArray());
-}
+Dictionary<string, Way[]> artccOsmOnlyIcaos =
+	apBoundaries.GetFiltered(apb => !cifp.Aerodromes.ContainsKey(apb["icao"]!)).Group(
+		artccBoundaries.ToDictionary(b => b.Key, b => new Way(0, [.. b.Value.Select(n => new Node(0, n.Latitude, n.Longitude, FrozenDictionary<string, string>.Empty))], FrozenDictionary<string, string>.Empty))
+	).ToDictionary(
+		kvp => kvp.Key,
+		kvp => kvp.Value.Ways.Values.Concat(kvp.Value.Relations.Values
+			.Where(v => v.Members.Any(m => m is Way))
+			.Select(v => (Way)v.Members.MaxBy(m => m is Way w ? w.Nodes.Length : -1)! with { Tags = v.Tags })).ToArray());
 
 Console.WriteLine($" Done!");
 Console.Write("Generating labels and centerlines...");
 
 const double CHAR_WIDTH = 0.0001;
-
-using (Spinner.Default)
+foreach (var (icao, apOsm) in apOsms)
 {
-	foreach (var (icao, apOsm) in apOsms)
+	List<string> gtsLabels = [];
+
+	// Aprons & Buildings
+	foreach (Way location in apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "apron" or "terminal" && (w["name"] ?? w["ref"]) is not null).Ways.Values)
 	{
-		List<string> gtsLabels = [];
-
-		// Aprons & Buildings
-		foreach (Way location in apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "apron" or "terminal" && (w["name"] ?? w["ref"]) is not null).Ways.Values)
-		{
-			string label = (location["name"] ?? location["ref"])!;
-			gtsLabels.Add($"{label};{icao};{location.Nodes.Average(n => n.Latitude) - CHAR_WIDTH:00.0####};{location.Nodes.Average(n => n.Longitude) - label.Length * CHAR_WIDTH / 2:000.0####};");
-		}
-
-		// Gates
-		Gates gates = new(
-			icao,
-			apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "parking_position")
-		);
-		gtsLabels.AddRange(gates.Labels.Split("\r\n", StringSplitOptions.RemoveEmptyEntries));
-		File.WriteAllLines(Path.Combine(labelFolder, icao + ".gts"), [.. gtsLabels]);
-
-		Osm taxiwayOsm = apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "taxiway" or "taxilane");
-		// Taxiways
-		Taxiways taxiways = new(icao, taxiwayOsm);
-		string[] txilabels = taxiways.Labels.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
-		File.WriteAllLines(Path.Combine(labelFolder, icao + ".txi"), txilabels);
-
-		// Geos
-		File.WriteAllText(Path.Combine(geoFolder, icao + ".geo"), taxiways.Centerlines + "\r\n\r\n" + gates.Routes);
+		string label = (location["name"] ?? location["ref"])!;
+		gtsLabels.Add($"{label};{icao};{location.Nodes.Average(n => n.Latitude) - CHAR_WIDTH:00.0####};{location.Nodes.Average(n => n.Longitude) - label.Length * CHAR_WIDTH / 2:000.0####};");
 	}
+
+	// Gates
+	Gates gates = new(
+		icao,
+		apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "parking_position")
+	);
+	gtsLabels.AddRange(gates.Labels.Split("\r\n", StringSplitOptions.RemoveEmptyEntries));
+	File.WriteAllLines(Path.Combine(labelFolder, icao + ".gts"), [.. gtsLabels]);
+
+	Osm taxiwayOsm = apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "taxiway" or "taxilane");
+	// Taxiways
+	Taxiways taxiways = new(icao, taxiwayOsm);
+	string[] txilabels = taxiways.Labels.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+	File.WriteAllLines(Path.Combine(labelFolder, icao + ".txi"), txilabels);
+
+	// Geos
+	File.WriteAllText(Path.Combine(geoFolder, icao + ".geo"), taxiways.Centerlines + "\r\n\r\n" + gates.Routes);
 }
 
 Console.WriteLine($" Done!");
 Console.Write("Generating coastline...");
+Way[] coastlineGeos = Coastline.LoadTopologies("coastline")['i'];
 
-using (Spinner.Default)
-{
-	Way[] coastlineGeos = Coastline.LoadTopologies("coastline")['i'];
-
-	File.WriteAllLines(
-		Path.Combine(geoFolder, "coast.geo"),
-		coastlineGeos.Where(w => w.Nodes.Length >= 2 && !w.Nodes.Any(n => n.Latitude < 0 || n.Longitude > 0)).SelectMany(w =>
-			w.Nodes.Zip(w.Nodes.Skip(1).Append(w.Nodes[0])).Select(np =>
-				$"{np.First.Latitude:00.0####};{np.First.Longitude:000.0####};{np.Second.Latitude:00.0####};{np.Second.Longitude:000.0####};COAST;"
-			)
+File.WriteAllLines(
+	Path.Combine(geoFolder, "coast.geo"),
+	coastlineGeos.Where(w => w.Nodes.Length >= 2 && !w.Nodes.Any(n => n.Latitude < 0 || n.Longitude > 0)).SelectMany(w =>
+		w.Nodes.Zip(w.Nodes.Skip(1).Append(w.Nodes[0])).Select(np =>
+			$"{np.First.Latitude:00.0####};{np.First.Longitude:000.0####};{np.Second.Latitude:00.0####};{np.Second.Longitude:000.0####};COAST;"
 		)
-	);
-}
+	)
+);
 
 Console.WriteLine($" Done!");
 Console.Write("Generating polygons...");
 
-using (Spinner.Default)
+var polygonBlocks = apOsms.AsParallel().AsUnordered().Select(input =>
 {
-	var polygonBlocks = apOsms.AsParallel().AsUnordered().Select(input =>
+	var (icao, apOsm) = input;
+	StringBuilder tfls = new();
+
+	// Aprons
+	foreach (Way apron in apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "apron").Ways.Values)
 	{
-		var (icao, apOsm) = input;
-		StringBuilder tfls = new();
+		tfls.AppendLine($"STATIC;APRON;1;APRON;");
 
-		// Aprons
-		foreach (Way apron in apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "apron").Ways.Values)
-		{
-			tfls.AppendLine($"STATIC;APRON;1;APRON;");
+		foreach (Node n in apron.Nodes.Append(apron.Nodes[0]))
+			tfls.AppendLine($"{n.Latitude:00.0#####};{n.Longitude:000.0#####};");
+	}
 
-			foreach (Node n in apron.Nodes.Append(apron.Nodes[0]))
-				tfls.AppendLine($"{n.Latitude:00.0#####};{n.Longitude:000.0#####};");
-		}
+	// Buildings
+	foreach (Way building in apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "terminal").Ways.Values)
+	{
+		tfls.AppendLine($"STATIC;BUILDING;1;BUILDING;");
 
-		// Buildings
-		foreach (Way building in apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "terminal").Ways.Values)
-		{
-			tfls.AppendLine($"STATIC;BUILDING;1;BUILDING;");
+		foreach (Node n in building.Nodes.Append(building.Nodes[0]))
+			tfls.AppendLine($"{n.Latitude:00.0#####};{n.Longitude:000.0#####};");
+	}
 
-			foreach (Node n in building.Nodes.Append(building.Nodes[0]))
-				tfls.AppendLine($"{n.Latitude:00.0#####};{n.Longitude:000.0#####};");
-		}
+	// Taxiways
+	Taxiways taxiways = new(
+		icao,
+		apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "taxiway" or "taxilane")
+	);
+	foreach (Way txw in taxiways.BoundingBoxes)
+	{
+		tfls.AppendLine($"STATIC;TAXIWAY;1;TAXIWAY;");
 
-		// Taxiways
-		Taxiways taxiways = new(
-			icao,
-			apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "taxiway" or "taxilane")
-		);
-		foreach (Way txw in taxiways.BoundingBoxes)
-		{
-			tfls.AppendLine($"STATIC;TAXIWAY;1;TAXIWAY;");
+		foreach (Node n in txw.Nodes)
+			tfls.AppendLine($"{n.Latitude:00.0#####};{n.Longitude:000.0#####};");
+	}
 
-			foreach (Node n in txw.Nodes)
-				tfls.AppendLine($"{n.Latitude:00.0#####};{n.Longitude:000.0#####};");
-		}
+	double rwWidth = cifp.Runways.TryGetValue(icao, out var rws) ? rws.Average(rw => rw.Width * 0.00000137) : 0.0002;
+	// Runways
+	foreach (Way rw in apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "runway").Ways.Select(rw => rw.Value.Inflate(rwWidth)))
+	{
+		tfls.AppendLine($"STATIC;RUNWAY;1;RUNWAY;");
 
-		double rwWidth = cifp.Runways.TryGetValue(icao, out var rws) ? rws.Average(rw => rw.Width * 0.00000137) : 0.0002;
-		// Runways
-		foreach (Way rw in apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "runway").Ways.Select(rw => rw.Value.Inflate(rwWidth)))
-		{
-			tfls.AppendLine($"STATIC;RUNWAY;1;RUNWAY;");
+		foreach (Node n in rw.Nodes)
+			tfls.AppendLine($"{n.Latitude:00.0#####};{n.Longitude:000.0#####};");
+	}
 
-			foreach (Node n in rw.Nodes)
-				tfls.AppendLine($"{n.Latitude:00.0#####};{n.Longitude:000.0#####};");
-		}
+	return (icao, tfls.ToString());
+});
 
-		return (icao, tfls.ToString());
-	});
-
-	foreach (var (icao, tfl) in polygonBlocks.Where(i => i.Item2.Length > 0))
-		File.WriteAllText(Path.Combine(polygonFolder, icao + ".tfl"), tfl);
-}
+foreach (var (icao, tfl) in polygonBlocks.Where(i => i.Item2.Length > 0))
+	File.WriteAllText(Path.Combine(polygonFolder, icao + ".tfl"), tfl);
 
 Console.WriteLine($" Done!");
 Console.Write("Generating procedures...");
 ConcurrentDictionary<string, HashSet<NamedCoordinate>> apProcFixes = [];
+Procedures procs = new(cifp);
 
-using (Spinner.Default)
+Parallel.ForEach(cifp.Aerodromes.Values, airport =>
 {
-	Procedures procs = new(cifp);
+	var (sidLines, sidFixes) = procs.AirportSidLines(airport.Identifier);
+	var (starLines, starFixes) = procs.AirportStarLines(airport.Identifier);
+	var (iapLines, iapFixes) = procs.AirportApproachLines(airport.Identifier);
 
-	Parallel.ForEach(cifp.Aerodromes.Values, airport =>
+	if (sidLines.Length > 0)
+		File.WriteAllLines(Path.Combine(procedureFolder, airport.Identifier + ".sid"), sidLines);
+
+	if (starLines.Length > 0)
 	{
-		var (sidLines, sidFixes) = procs.AirportSidLines(airport.Identifier);
-		var (starLines, starFixes) = procs.AirportStarLines(airport.Identifier);
-		var (iapLines, iapFixes) = procs.AirportApproachLines(airport.Identifier);
+		File.WriteAllLines(Path.Combine(procedureFolder, airport.Identifier + ".str"), starLines);
 
-		if (sidLines.Length > 0)
-			File.WriteAllLines(Path.Combine(procedureFolder, airport.Identifier + ".sid"), sidLines);
+		if (iapLines.Length > 0)
+			File.AppendAllLines(Path.Combine(procedureFolder, airport.Identifier + ".str"), iapLines);
+	}
+	else if (iapLines.Length > 0)
+		File.WriteAllLines(Path.Combine(procedureFolder, airport.Identifier + ".str"), iapLines);
 
-		if (starLines.Length > 0)
-		{
-			File.WriteAllLines(Path.Combine(procedureFolder, airport.Identifier + ".str"), starLines);
-
-			if (iapLines.Length > 0)
-				File.AppendAllLines(Path.Combine(procedureFolder, airport.Identifier + ".str"), iapLines);
-		}
-		else if (iapLines.Length > 0)
-			File.WriteAllLines(Path.Combine(procedureFolder, airport.Identifier + ".str"), iapLines);
-
-		apProcFixes[airport.Identifier] = [.. sidFixes, .. starFixes, .. iapFixes];
-	});
-}
+	apProcFixes[airport.Identifier] = [.. sidFixes, .. starFixes, .. iapFixes];
+});
 
 Console.WriteLine($" Done!");
 
