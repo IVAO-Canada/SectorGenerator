@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Serialization;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SectorGenerator;
 
@@ -16,10 +17,10 @@ public struct Config
 
 	[JsonIgnore]
 	public static Config Default => new() {
-		OutputFolder = @"C:\Program Files\IVAO\Aurora\SectorFiles",
-		PbfPath = @".\us-latest.osm.pbf",
+		OutputFolder = Environment.GetEnvironmentVariable("SECTORFILES_FOLDER") ?? "SectorFiles",
+		PbfPath = Environment.GetEnvironmentVariable("OSM_PATH") ?? "us-latest.osm.pbf",
 		BoundaryFilePath = null,
-		IvaoApiRefresh = null,
-		SectorAdditionalAirports = []
+		IvaoApiRefresh = Environment.GetEnvironmentVariable("IVAO_REFRESH") ?? null,
+		SectorAdditionalAirports = JsonSerializer.Deserialize<Dictionary<string, string[]>>(Environment.GetEnvironmentVariable("SECTORFILES_FOLDER") ?? "{}") ?? []
 	};
 }

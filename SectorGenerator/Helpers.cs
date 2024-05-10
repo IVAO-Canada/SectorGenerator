@@ -1,4 +1,5 @@
 ﻿using System.Net.Http.Json;
+using System.Runtime.ConstrainedExecution;
 using System.Text.Json.Nodes;
 
 using WSleeman.Osm;
@@ -56,11 +57,9 @@ internal static class Helpers
 		http.DefaultRequestHeaders.Authorization = new("Bearer", token);
 		http.BaseAddress = new(@"https://api.ivao.aero");
 		HashSet<JsonObject> positions = [..(await http.GetFromJsonAsync<JsonArray>("/v2/ATCPositions/all?loadAirport=false"))!.Cast<JsonObject>()];
+		JsonObject[] centerObjs = (await http.GetFromJsonAsync<JsonObject[]>($"/v2/positions/search?startsWith={prefix}&positionType=CTR&limit=100"))!;
 
-		//foreach (string ctr in centers)
-		//	positions.Add((await http.GetFromJsonAsync<JsonObject>($"/v2/ATCPositions/{ctr}_CTR"))!);
-
-		return [.. positions.Where(jo => { string pos = jo["composePosition"]!.GetValue<string>(); return pos.StartsWith(prefix); })];
+		return [.. positions.Where(jo => { string pos = jo["composePosition"]!.GetValue<string>(); return pos.StartsWith(prefix); }).Concat(centerObjs)];
 	}
 
 	public static string DMS(double value, bool longitude) =>

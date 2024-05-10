@@ -126,6 +126,11 @@ public record MagneticCourse : Course
 			? new(Degrees, variation)
 			: ToTrue().ToMagnetic(variation);
 
+	public MagneticCourse Resolve(decimal variation) =>
+		Variation is null
+		? new(Degrees, variation)
+		: new(this);
+
 	public override TrueCourse ToTrue() =>
 		Variation is null
 		? throw new Exception("Cannot convert magnetic to true course unless variation known")

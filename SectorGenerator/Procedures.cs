@@ -240,8 +240,9 @@ internal class Procedures(CIFP cifp)
 			const decimal radius = 1; // NMI
 
 			List<Coordinate> rtPoints = [];
-			Coordinate focus1 = hold.Point.GetCoordinate().FixRadialDistance((hold.InboundCourse is MagneticCourse imc && imc.Variation is null) ? imc with { Variation = magVar } : hold.InboundCourse + (hold.LeftTurns ? -90m : 90m), radius),
-					   focus2 = focus1.FixRadialDistance(hold.InboundCourse.Reciprocal, radius * 3.5m);
+			Course outboundCourse = hold.InboundCourse.Reciprocal;
+			Coordinate focus1 = hold.Point.GetCoordinate().FixRadialDistance((hold.InboundCourse is MagneticCourse imc ? imc.Resolve(magVar) : hold.InboundCourse) + (hold.LeftTurns ? -90m : 90m), radius),
+					   focus2 = focus1.FixRadialDistance(outboundCourse is MagneticCourse mc ? mc.Resolve(magVar) : outboundCourse, radius * 3.5m);
 
 			for (decimal angle = -90m; angle <= 90m; angle += 15)
 				rtPoints.Add(focus1.FixRadialDistance(hold.InboundCourse + angle, radius));

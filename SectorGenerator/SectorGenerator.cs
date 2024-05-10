@@ -14,6 +14,32 @@ using static SectorGenerator.Helpers;
 
 Config config = File.Exists("config.json") ? JsonSerializer.Deserialize<Config>(File.ReadAllText("config.json")) : Config.Default;
 
+if (!File.Exists(config.PbfPath))
+{
+	Console.Write("Downloading OSM extract...");
+	using (Spinner.Default)
+	{
+		using HttpClient http = new();
+		using Stream netStream = await http.GetStreamAsync("https://download.geofabrik.de/north-america/us-latest.osm.pbf");
+		using FileStream fileStream = File.OpenWrite("us-latest-full.osm.pbf");
+		await netStream.CopyToAsync(fileStream);
+	}
+	Console.WriteLine(" Done!");
+	Console.Write("Filtering OSM extract...");
+	using (Spinner.Default)
+	{
+		var osmium =
+			OperatingSystem.IsWindows()
+			? System.Diagnostics.Process.Start("wsl", "-e osmium tags-filter -o us-aeroways.osm.pbf us-latest-full.osm.pbf aeroway")
+			: System.Diagnostics.Process.Start("osmium", "tags-filter -o us-aeroways.osm.pbf us-latest-full.osm.pbf aeroway");
+
+		await osmium.WaitForExitAsync();
+		File.Delete("us-latest-full.osm.pbf");
+		File.Move("us-aeroways.osm.pbf", config.PbfPath);
+	}
+	Console.WriteLine(" Done!");
+}
+
 Console.Write("Getting IVAO API token...");
 string apiToken, apiRefreshToken;
 using (Spinner.Default)
@@ -24,7 +50,7 @@ using (Spinner.Default)
 		jsonNode = await oauth.GetOpenIdFromRefreshTokenAsync(apiRefresh);
 	else
 		jsonNode = await oauth.GetOpenIdFromBrowserAsync();
-			
+
 	apiToken = jsonNode["access_token"]!.GetValue<string>();
 	apiRefreshToken = jsonNode["refresh_token"]!.GetValue<string>();
 }
@@ -91,7 +117,7 @@ using (Spinner.Default)
 {
 	var atcPositions = await GetAtcPositionsAsync(apiToken, "K", faaArtccs.Select(a => "K" + a));
 	positionArtccs = [..atcPositions.Select(p => {
-		string facility = p["airportId"]!.GetValue<string>();
+		string facility = p["composePosition"]!.GetValue<string>().Split("_")[0];
 
 		if (facility.StartsWith("KZ"))
 			return (p, facility[1..]);
@@ -110,41 +136,31 @@ using (Spinner.Default)
 Console.WriteLine(" Done!");
 
 // Make sure folders are in place.
-string includeFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "IVAO", "Aurora", "SectorFiles");
-if (!Directory.Exists(includeFolder))
-	Directory.CreateDirectory(includeFolder);
+if (!Directory.Exists(config.OutputFolder))
+	Directory.CreateDirectory(config.OutputFolder);
 
-includeFolder = Path.Combine(includeFolder, "Include");
-if (!Directory.Exists(includeFolder))
-	Directory.CreateDirectory(includeFolder);
+foreach (string existingIsc in Directory.EnumerateFiles(config.OutputFolder, "*.isc"))
+	File.Delete(existingIsc);
 
+string includeFolder = Path.Combine(config.OutputFolder, "Include");
+if (Directory.Exists(includeFolder))
+	Directory.Delete(includeFolder, true);
+
+Directory.CreateDirectory(includeFolder);
 includeFolder = Path.Combine(includeFolder, "US");
-if (!Directory.Exists(includeFolder))
-	Directory.CreateDirectory(includeFolder);
-
+Directory.CreateDirectory(includeFolder);
 string labelFolder = Path.Combine(includeFolder, "labels");
-if (!Directory.Exists(labelFolder))
-	Directory.CreateDirectory(labelFolder);
-
+Directory.CreateDirectory(labelFolder);
 string geoFolder = Path.Combine(includeFolder, "geos");
-if (!Directory.Exists(geoFolder))
-	Directory.CreateDirectory(geoFolder);
-
+Directory.CreateDirectory(geoFolder);
 string polygonFolder = Path.Combine(includeFolder, "polygons");
-if (!Directory.Exists(polygonFolder))
-	Directory.CreateDirectory(polygonFolder);
-
+Directory.CreateDirectory(polygonFolder);
 string procedureFolder = Path.Combine(includeFolder, "procedures");
-if (!Directory.Exists(procedureFolder))
-	Directory.CreateDirectory(procedureFolder);
-
+Directory.CreateDirectory(procedureFolder);
 string navaidFolder = Path.Combine(includeFolder, "navaids");
-if (!Directory.Exists(navaidFolder))
-	Directory.CreateDirectory(navaidFolder);
-
+Directory.CreateDirectory(navaidFolder);
 string mvaFolder = Path.Combine(includeFolder, "mvas");
-if (!Directory.Exists(mvaFolder))
-	Directory.CreateDirectory(mvaFolder);
+Directory.CreateDirectory(mvaFolder);
 
 Console.Write("Generating shared navigation data...");
 File.WriteAllLines(Path.Combine(navaidFolder, "ndb.ndb"), [..cifp.Navaids.SelectMany(kvp => kvp.Value).Where(nv => nv is NDB).Cast<NDB>()
@@ -521,7 +537,7 @@ F;coast.geo
 {(artccOsmOnlyIcaos.TryGetValue(artcc, out var aoois) ? string.Join("\r\n", aoois.Select(ap => $"F;{ap}.geo")) : "")}
 ";
 
-	File.WriteAllText(Path.Combine(includeFolder, "..", "..", $"K{artcc.ToUpperInvariant()}.isc"), $@"{infoBlock}
+	File.WriteAllText(Path.Combine(config.OutputFolder, $"K{artcc.ToUpperInvariant()}.isc"), $@"{infoBlock}
 {defineBlock}
 {atcBlock}
 {airportBlock}
