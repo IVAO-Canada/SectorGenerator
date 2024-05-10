@@ -50,12 +50,17 @@ internal static class Helpers
 		return intersections % 2 == 1;
 	}
 
-	public static async Task<JsonObject[]> GetAtcPositionsAsync(string token, string prefix)
+	public static async Task<JsonObject[]> GetAtcPositionsAsync(string token, string prefix, IEnumerable<string> centers)
 	{
 		HttpClient http = new();
 		http.DefaultRequestHeaders.Authorization = new("Bearer", token);
 		http.BaseAddress = new(@"https://api.ivao.aero");
-		return [.. (await http.GetFromJsonAsync<JsonArray>($"/v2/ATCPositions/all?loadAirport=false"))!.Cast<JsonObject>().Where(jo => jo["airportId"]?.GetValue<string>().StartsWith(prefix) ?? false)];
+		HashSet<JsonObject> positions = [..(await http.GetFromJsonAsync<JsonArray>("/v2/ATCPositions/all?loadAirport=false"))!.Cast<JsonObject>()];
+
+		//foreach (string ctr in centers)
+		//	positions.Add((await http.GetFromJsonAsync<JsonObject>($"/v2/ATCPositions/{ctr}_CTR"))!);
+
+		return [.. positions.Where(jo => { string pos = jo["composePosition"]!.GetValue<string>(); return pos.StartsWith(prefix); })];
 	}
 
 	public static string DMS(double value, bool longitude) =>

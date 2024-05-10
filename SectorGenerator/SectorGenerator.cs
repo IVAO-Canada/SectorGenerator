@@ -14,19 +14,21 @@ using static SectorGenerator.Helpers;
 
 Config config = File.Exists("config.json") ? JsonSerializer.Deserialize<Config>(File.ReadAllText("config.json")) : Config.Default;
 
-string apiToken;
-if ((config.IvaoApiSecret ?? Environment.GetEnvironmentVariable("IVAO_SECRET")) is string apiSecret &&
-	(config.IvaoApiRefresh ?? Environment.GetEnvironmentVariable("IVAO_REFRESH")) is string apiRefresh)
+Console.Write("Getting IVAO API token...");
+string apiToken, apiRefreshToken;
+using (Spinner.Default)
 {
-	apiToken = apiSecret;
-}
-else
-{
-	Console.Write("Getting IVAO API token...");
 	using Oauth oauth = new();
-	apiToken = (await oauth.GetOpenIdFromBrowserAsync())["access_token"]!.GetValue<string>();
-	Console.WriteLine(" Done!");
+	JsonNode jsonNode;
+	if ((config.IvaoApiRefresh ?? Environment.GetEnvironmentVariable("IVAO_REFRESH")) is string apiRefresh)
+		jsonNode = await oauth.GetOpenIdFromRefreshTokenAsync(apiRefresh);
+	else
+		jsonNode = await oauth.GetOpenIdFromBrowserAsync();
+			
+	apiToken = jsonNode["access_token"]!.GetValue<string>();
+	apiRefreshToken = jsonNode["refresh_token"]!.GetValue<string>();
 }
+Console.WriteLine($" Done! (Refresh: {apiRefreshToken})");
 
 Console.Write("Processing ARTCC boundaries...");
 var (artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath);
@@ -67,7 +69,10 @@ Console.Write("Allocating airports to centers...");
 Dictionary<string, HashSet<Aerodrome>> centerAirports = [];
 
 foreach (var (artcc, points) in artccBoundaries)
-	centerAirports.Add(artcc, [.. cifp.Aerodromes.Values.Where(a => IsInPolygon(points, ((double)a.Location.Latitude, (double)a.Location.Longitude)))]);
+	centerAirports.Add(artcc, [..
+		cifp.Aerodromes.Values.Where(a => IsInPolygon(points, ((double)a.Location.Latitude, (double)a.Location.Longitude)))
+							  .Concat(config.SectorAdditionalAirports.TryGetValue(artcc, out var addtl) ? addtl.Select(a => cifp.Aerodromes[a]) : [])
+	]);
 
 Console.WriteLine(" Done!");
 
@@ -84,7 +89,7 @@ Console.Write("Getting ATC positions...");
 
 using (Spinner.Default)
 {
-	var atcPositions = await GetAtcPositionsAsync(apiToken, "K");
+	var atcPositions = await GetAtcPositionsAsync(apiToken, "K", faaArtccs.Select(a => "K" + a));
 	positionArtccs = [..atcPositions.Select(p => {
 		string facility = p["airportId"]!.GetValue<string>();
 

@@ -12,8 +12,6 @@ public struct Config
 
 	public string? IvaoApiRefresh { get; set; }
 
-	public string? IvaoApiSecret { get; set; }
-
 	public Dictionary<string, string[]> SectorAdditionalAirports { get; set; }
 
 	[JsonIgnore]
@@ -22,7 +20,6 @@ public struct Config
 		PbfPath = @".\us-latest.osm.pbf",
 		BoundaryFilePath = null,
 		IvaoApiRefresh = null,
-		IvaoApiSecret = null,
 		SectorAdditionalAirports = []
 	};
 }

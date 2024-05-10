@@ -54,14 +54,13 @@ internal class Oauth : IDisposable
 			return await GetOpenIdFromBrowserAsync();
 	}
 
-	public async Task<JsonObject> GetOpenIdFromDivisionKeyAsync(string divisionSecret)
+	public async Task<JsonObject> GetOpenIdFromRefreshTokenAsync(string refreshToken)
 	{
 		var resp = await _http.PostAsync("https://api.ivao.aero/v2/oauth/token", JsonContent.Create(new
 		{
-			grant_type = "authorization_code",
-			redirect_uri = "http://localhost:22125/",
-			client_id = "48f0f536-4640-4e3c-a8d2-aa44e9bb4454",
-			client_secret = divisionSecret
+			grant_type = "refresh_token",
+			client_id = "d569e5a6-367c-4014-9892-8239f339bacc",
+			refresh_token = refreshToken
 		}));
 		if (JsonNode.Parse(await resp.Content.ReadAsStringAsync()) is JsonObject retval)
 			return retval;
