@@ -5,7 +5,7 @@ VisualStudioVersion = 17.0.31512.422
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SectorGenerator", "SectorGenerator\SectorGenerator.csproj", "{49B6EC9A-9030-4734-854D-67072CFC9523}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CIFPReader", "..\Personal\CIFPReader\CIFPReader.csproj", "{EBF20EE8-9F8D-4A28-B82E-F8C44FD7C2AF}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CIFPReader", "CIFPReader\CIFPReader.csproj", "{EBF20EE8-9F8D-4A28-B82E-F8C44FD7C2AF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
