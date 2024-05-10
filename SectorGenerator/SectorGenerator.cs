@@ -367,13 +367,14 @@ foreach (string artcc in faaArtccs)
 	);
 
 	Console.Write(" Info");
+	double cosLat = Math.Cos(centerpoint.Latitude * Math.PI / 180);
 
 	string infoBlock = $@"[INFO]
 {DMS(centerpoint.Latitude, false)}
 {DMS(centerpoint.Longitude, true)}
 60
-{60 * Math.Abs(Math.Cos(centerpoint.Latitude)):00}
-{ifrAirports.Average(ap => ap.MagneticVariation) * (Math.Cos(centerpoint.Latitude) < 0 ? -1 : 1):00.0000}
+{60 * Math.Abs(cosLat):00}
+{ifrAirports.Average(ap => ap.MagneticVariation) * (cosLat < 0 ? -1 : 1):00.0000}
 US/{artcc};US/labels;US/geos;US/polygons;US/procedures;US/navaids;US/mvas
 ";
 	string artccFolder = Path.Combine(includeFolder, artcc);
