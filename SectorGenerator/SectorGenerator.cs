@@ -14,32 +14,6 @@ using static SectorGenerator.Helpers;
 
 Config config = File.Exists("config.json") ? JsonSerializer.Deserialize<Config>(File.ReadAllText("config.json")) : Config.Default;
 
-if (!File.Exists(config.PbfPath))
-{
-	Console.Write("Downloading OSM extract...");
-	using (Spinner.Default)
-	{
-		using HttpClient http = new();
-		using Stream netStream = await http.GetStreamAsync("https://download.geofabrik.de/north-america/us-latest.osm.pbf");
-		using FileStream fileStream = File.OpenWrite("us-latest-full.osm.pbf");
-		await netStream.CopyToAsync(fileStream);
-	}
-	Console.WriteLine(" Done!");
-	Console.Write("Filtering OSM extract...");
-	using (Spinner.Default)
-	{
-		var osmium =
-			OperatingSystem.IsWindows()
-			? System.Diagnostics.Process.Start("wsl", "-e osmium tags-filter -o us-aeroways.osm.pbf us-latest-full.osm.pbf aeroway")
-			: System.Diagnostics.Process.Start("osmium", "tags-filter -o us-aeroways.osm.pbf us-latest-full.osm.pbf aeroway");
-
-		await osmium.WaitForExitAsync();
-		File.Delete("us-latest-full.osm.pbf");
-		File.Move("us-aeroways.osm.pbf", config.PbfPath);
-	}
-	Console.WriteLine(" Done!");
-}
-
 Console.Write("Getting IVAO API token...");
 string apiToken, apiRefreshToken;
 using (Spinner.Default)
@@ -83,10 +57,10 @@ using (Spinner.Default)
 Console.WriteLine(" Done!");
 
 Console.Write("Parsing mapping data from OSM...");
-if (Osm.Load(config.PbfPath) is not Osm osm)
+if (await Osm.Load() is not Osm osm)
 {
 	Console.WriteLine(" Failed");
-	Console.WriteLine($"Could not find mapping data at {config.PbfPath}. Please go get it from https://download.geofabrik.de/north-america/us-latest.osm.pbf, filter it to only include aeroways, and put it at {config.PbfPath}.");
+	Console.WriteLine("Could not find mapping data.");
 	return;
 }
 Console.WriteLine(" Done!");

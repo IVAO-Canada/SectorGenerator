@@ -7,9 +7,9 @@ using static SectorGenerator.Helpers;
 
 namespace SectorGenerator;
 
-internal class Osm(OsmPbfFile data)
+internal class Osm(OsmData data)
 {
-	private readonly OsmPbfFile _aerodata = data;
+	private readonly OsmData _aerodata = data;
 
 	public FrozenDictionary<long, Node> Nodes => _aerodata.Nodes;
 
@@ -17,14 +17,11 @@ internal class Osm(OsmPbfFile data)
 
 	public FrozenDictionary<long, Relation> Relations => _aerodata.Relations;
 
-	public static Osm? Load(string path)
-	{
-		if (!File.Exists(path))
-			return null;
-
-		using FileStream osmFile = File.OpenRead(path);
-		return new(OsmPbfFile.ReadFast(osmFile));
-	}
+	public static async Task<Osm?> Load() => 
+		new(await Overpass.FromQueryAsync(@"[out:json][timeout:180];
+area(id:3600148838)->.searchArea;
+nwr[""aeroway""](area.searchArea);
+out;"));
 
 	public Osm InRegion((double Latitude, double Longitude)[] boundingRegion)
 	{
@@ -100,7 +97,7 @@ internal class Osm(OsmPbfFile data)
 		var keys = nodeGroups.Keys.Union(wayGroups.Keys).Union(relationGroups.Keys);
 
 		return keys.ToDictionary(k => k, k =>
-			new Osm(new(
+			new Osm(new Overpass(
 				nodeGroups.TryGetValue(k, out var ng) ? ng : FrozenDictionary<long, Node>.Empty,
 				wayGroups.TryGetValue(k, out var wg) ? wg : FrozenDictionary<long, Way>.Empty,
 				relationGroups.TryGetValue(k, out var rg) ? rg : FrozenDictionary<long, Relation>.Empty
