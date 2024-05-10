@@ -240,15 +240,16 @@ internal class Procedures(CIFP cifp)
 			const decimal radius = 1; // NMI
 
 			List<Coordinate> rtPoints = [];
-			Course outboundCourse = hold.InboundCourse.Reciprocal;
-			Coordinate focus1 = hold.Point.GetCoordinate().FixRadialDistance((hold.InboundCourse is MagneticCourse imc ? imc.Resolve(magVar) : hold.InboundCourse) + (hold.LeftTurns ? -90m : 90m), radius),
-					   focus2 = focus1.FixRadialDistance(outboundCourse is MagneticCourse mc ? mc.Resolve(magVar) : outboundCourse, radius * 3.5m);
+			Course inboundCourse = hold.InboundCourse is MagneticCourse imc ? imc.Resolve(magVar) : hold.InboundCourse;
+			Course outboundCourse = inboundCourse.Reciprocal;
+			Coordinate focus1 = hold.Point.GetCoordinate().FixRadialDistance(inboundCourse + (hold.LeftTurns ? -90m : 90m), radius),
+					   focus2 = focus1.FixRadialDistance(outboundCourse, radius * 3.5m);
 
 			for (decimal angle = -90m; angle <= 90m; angle += 15)
-				rtPoints.Add(focus1.FixRadialDistance(hold.InboundCourse + angle, radius));
+				rtPoints.Add(focus1.FixRadialDistance(inboundCourse + angle, radius));
 
 			for (decimal angle = 90m; angle <= 270m; angle += 15)
-				rtPoints.Add(focus2.FixRadialDistance(hold.InboundCourse + angle, radius));
+				rtPoints.Add(focus2.FixRadialDistance(inboundCourse + angle, radius));
 
 			return ([.. procPrev(), (hold.Point, instruction.Altitude), .. rtPoints.Select(p => (p, AltitudeRestriction.Unrestricted)), (hold.Point, AltitudeRestriction.Unrestricted)], null);
 		}
