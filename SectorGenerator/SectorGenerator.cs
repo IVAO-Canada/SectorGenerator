@@ -29,9 +29,26 @@ using (Oauth oauth = new())
 }
 Console.WriteLine($" Done! (Refresh: {apiRefreshToken})");
 
-Console.Write("Processing ARTCC boundaries...");
-var (artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath);
+// Long loading threads in parallel!
+Console.Write("Downloading ARTCC boundaries, CIFPs, and OSM data...");
+CIFP? cifp = null;
+Osm? osm = null;
+Dictionary<string, (double Latitude, double Longitude)[]> artccBoundaries = [];
+Dictionary<string, string[]> artccNeighbours = [];
+string[] faaArtccs = [];
+await Task.WhenAll([
+	Task.Run(async () => (artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath)),
+	Task.Run(() => cifp = CIFP.Load()),
+	Task.Run(async () => osm = await Osm.Load())
+]);
+
+// Keep the compiler happy with fallback checks.
+cifp ??= CIFP.Load();
+osm ??= await Osm.Load();
 Console.WriteLine(" Done!");
+
+Console.Write("Allocating airports to centers...");
+Dictionary<string, HashSet<Aerodrome>> centerAirports = [];
 
 // Generate copy-pasteable Webeye shapes for each of the ARTCCs.
 (string Artcc, string Shape)[] artccWebeyeShapes = [..
@@ -46,22 +63,6 @@ if (!Directory.Exists("webeye"))
 
 foreach (var (artcc, shape) in artccWebeyeShapes)
 	File.WriteAllText(Path.ChangeExtension(Path.Join("webeye", artcc), "txt"), shape);
-
-Console.Write("Downloading CIFPs from the FAA...");
-CIFP cifp = CIFP.Load();
-Console.WriteLine(" Done!");
-
-Console.Write("Parsing mapping data from OSM...");
-if (await Osm.Load() is not Osm osm)
-{
-	Console.WriteLine(" Failed");
-	Console.WriteLine("Could not find mapping data.");
-	return;
-}
-Console.WriteLine(" Done!");
-
-Console.Write("Allocating airports to centers...");
-Dictionary<string, HashSet<Aerodrome>> centerAirports = [];
 
 foreach (var (artcc, points) in artccBoundaries)
 	centerAirports.Add(artcc, [..
@@ -90,6 +91,9 @@ var atcPositions = await GetAtcPositionsAsync(apiToken, "K", faaArtccs.Select(a 
 		return (p, artcc);
 	else if (!centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == facility)))
 	{
+		if ((p["airportId"] ?? p["centerId"])?.GetValue<string>() is string pos && centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == pos)))
+			return (p, centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == pos)).Key);
+
 		Console.WriteLine(facility);
 		return (p, "KZZZ");
 	}
@@ -142,7 +146,7 @@ Osm apBoundaries = osm.GetFiltered(g =>
 	g["abandoned"] is null
 );
 
-IDictionary<string, Osm> apOsms = osm.GetFiltered(item => item is not Node n || n["aeroway"] is "holding_position").Group(
+IDictionary<string, Osm> apOsms = osm.GetFiltered(item => item is not Node n || n["aeroway"] is "parking_position").Group(
 	apBoundaries.Ways.Values
 		.Concat(apBoundaries.Relations.Values.Where(r => r.Members.Any(m => m is Way))
 		.SelectMany(r => r.Members.Where(i => i is Way w).Select(w => (Way)w with { Tags = w.Tags.Append(new("icao", r["icao"]!)).ToFrozenDictionary() })))
@@ -292,17 +296,17 @@ Parallel.ForEach(cifp.Aerodromes.Values, airport =>
 });
 
 Console.WriteLine($" Done!");
+SemaphoreSlim mrvaWrites = new(1);
 
-foreach (string artcc in faaArtccs)
+Parallel.ForEach(faaArtccs, async artcc =>
 {
-	Console.Write($"{artcc}:");
 
 	Airport[] ifrAirports = [.. centerAirports[artcc].Where(ad => ad is Airport ap && ap.IFR).Cast<Airport>()];
 
 	if (ifrAirports.Length == 0)
 	{
-		Console.WriteLine(" Skipped.");
-		continue;
+		Console.WriteLine($"{artcc} skipped.");
+		return;
 	}
 
 	(double Latitude, double Longitude) centerpoint = (
@@ -310,7 +314,7 @@ foreach (string artcc in faaArtccs)
 		ifrAirports.Average(ap => (double)ap.Location.Longitude)
 	);
 
-	Console.Write(" Info");
+	// Info.
 	double cosLat = Math.Cos(centerpoint.Latitude * Math.PI / 180);
 
 	string infoBlock = $@"[INFO]
@@ -318,15 +322,14 @@ foreach (string artcc in faaArtccs)
 {DMS(centerpoint.Longitude, true)}
 60
 {60 * Math.Abs(cosLat):00}
-{ifrAirports.Average(ap => ap.MagneticVariation) * (cosLat < 0 ? -1 : 1):00.0000}
+{ifrAirports.Average(ap => ap.MagneticVariation):00.0000}
 US/{artcc};US/labels;US/geos;US/polygons;US/procedures;US/navaids;US/mvas
 ";
 	string artccFolder = Path.Combine(includeFolder, artcc);
 	if (!Directory.Exists(artccFolder))
 		Directory.CreateDirectory(artccFolder);
 
-	Console.Write(" Colors");
-
+	// Colours.
 	string defineBlock = $@"[DEFINE]
 TAXIWAY;#999A99;
 APRON;#B9BBBB;
@@ -336,20 +339,20 @@ RUNWAY;#555555;
 STOPBAR;#B30000;
 ";
 
-	Console.Write(" ATC");
+	// ATC Positions.
 	string atcBlock = "[ATC]\r\nF;atc.atc\r\n";
 	File.WriteAllLines(Path.Combine(artccFolder, "atc.atc"), [..
 		positionArtccs.Where(p => p.Artcc == artcc).Select(p => $"{p.Position["composePosition"]!.GetValue<string>()};{p.Position["frequency"]!.GetValue<decimal>()};")
 	]);
 
-	Console.Write(" Airports");
+	// Airports (main).
 	string airportBlock = "[AIRPORT]\r\nF;airports.ap\r\n";
 	File.WriteAllLines(Path.Combine(artccFolder, "airports.ap"), [..
 		centerAirports[artcc].Select(ad => $"{ad.Identifier};{ad.Elevation.ToMSL().Feet};18000;{ad.Location.Latitude:00.0####};{ad.Location.Longitude:000.0####};{ad.Name.TrimEnd()};")
 		.Concat(artccOsmOnlyIcaos.TryGetValue(artcc, out var aooi) ? aooi.Select(w => $"{w["icao"]!};0;18000;{w.Nodes.Average(n => n.Latitude):00.0####};{w.Nodes.Average(n => n.Longitude):000.0####};{w["name"] ?? "Unknown Airport"};") : [])
 	]);
 
-	Console.Write($" Runways");
+	// Runways.
 	string runwayBlock = "[RUNWAY]\r\nF;runways.rw\r\n";
 	File.WriteAllText(Path.Combine(artccFolder, "runways.rw"), string.Join(
 	"\r\n",
@@ -361,8 +364,6 @@ STOPBAR;#B30000;
 						   $"{rws.Primary.Endpoint.Latitude:00.0####};{rws.Primary.Endpoint.Longitude:000.0####};{rws.Opposite.Endpoint.Latitude:00.0####};{rws.Opposite.Endpoint.Longitude:000.0####};")
 	)
 ));
-
-	Console.Write(" Airways");
 
 	// Airways.
 	Airway[] inScopeLowAirways = [.. cifp.Airways.Where(kvp => kvp.Key[0] is 'V' or 'T').SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInPolygon(artccBoundaries[artcc], ((double)p.Point.Latitude, (double)p.Point.Longitude)))))];
@@ -384,9 +385,7 @@ F;airways.high
 		..v.Select(p => $"T;{v.Identifier};{p.Name ?? p.Point.Latitude.ToString("00.0####")};{p.Name ?? p.Point.Longitude.ToString("000.0####")};")
 	]));
 
-	Console.Write(" Fixes");
-
-	// Fixes
+	// Fixes.
 	string fixesBlock = "[FIXES]\r\nF;fixes.fix\r\n";
 	(string Key, Coordinate Point)[] fixes = [..cifp.Fixes.SelectMany(g => g.Value.Select(v => (g.Key, Point: v.GetCoordinate())))
 		.Where(f => IsInPolygon(artccBoundaries[artcc], ((double)f.Point.Latitude, (double)f.Point.Longitude)))
@@ -399,8 +398,6 @@ F;airways.high
 			.Concat(centerAirports[artcc].SelectMany(icao => apProcFixes.TryGetValue(icao.Identifier, out var fixes) ? fixes : []).Select(p => (Key: p.Name!, Point: p.GetCoordinate())))
 			.Select(f => $"{f.Key};{f.Point.Latitude:00.0####};{f.Point.Longitude:000.0####};")
 	]);
-
-	Console.Write(" Boundaries");
 
 	// ARTCC boundaries.
 	// TODO: High boundaries for TRACONs.
@@ -428,8 +425,6 @@ F;low.artcc
 	AirspaceDrawing ad = new(cifp.Airspaces.Where(ap => ap.Regions.Any(r => r.Class is ControlledAirspace.AirspaceClass.B && r.Boundaries.Any(b => IsInPolygon(artccBoundaries[artcc], ((double)b.Vertex.Latitude, (double)b.Vertex.Longitude))))));
 	File.WriteAllText(Path.Combine(artccFolder, "low.artcc"), ad.ClassBPaths);
 
-	Console.Write(" VFR");
-
 	// TODO: VFR Routes
 	string vfrBlock = "[VFRFIX]\r\nF;vfr.fix\r\n";
 
@@ -439,8 +434,7 @@ F;low.artcc
 			.Select(f => $"{f.Key};{f.Point.Latitude:00.0####};{f.Point.Longitude:000.0####};")
 	]);
 
-
-	Console.Write(" MVAs");
+	// MRVAs
 	Mrva mrvas = new(artccBoundaries[artcc]);
 	string mvaBlock = $@"[MVA]
 {string.Join("\r\n", mrvas.Volumes.Keys.Select(k => "F;K" + k + ".mva"))}
@@ -459,11 +453,17 @@ F;low.artcc
 	}
 
 	foreach (var (fn, volume) in mrvas.Volumes)
-		File.WriteAllLines(Path.Combine(mvaFolder, "K" + fn + ".mva"), volume.Select(seg => string.Join("\r\n",
-			seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
-							  .Prepend(genLabelLine(fn, seg))
-		)));
+	{
+		await mrvaWrites.WaitAsync();
+		if (!File.Exists(Path.Combine(mvaFolder, "K" + fn + ".mva")))
+			File.WriteAllLines(Path.Combine(mvaFolder, "K" + fn + ".mva"), volume.Select(seg => string.Join("\r\n",
+				seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
+								  .Prepend(genLabelLine(fn, seg))
+			)));
+		mrvaWrites.Release();
+	}
 
+	// Airports (additional).
 	File.AppendAllLines(Path.Combine(artccFolder, "airports.ap"), [..
 		mrvas.Volumes.Keys
 			.Where(k => !centerAirports[artcc].Any(ad => ad.Identifier == "K" + k)).Select(k =>
@@ -472,8 +472,6 @@ F;low.artcc
 			$"{k} TRACON;"
 		)
 	]);
-
-	Console.Write(" Lines");
 
 	// Geo file references.
 	string geoBlock = @$"[GEO]
@@ -495,5 +493,5 @@ F;coast.geo
 {artccBlock}
 {geoBlock}");
 
-	Console.WriteLine(" Done!");
-}
+	Console.Write($"{artcc} ");
+});
