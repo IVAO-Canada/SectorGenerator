@@ -325,7 +325,7 @@ Parallel.ForEach(faaArtccs, async artcc =>
 {DMS(centerpoint.Longitude, true)}
 60
 {60 * Math.Abs(cosLat):00}
-{ifrAirports.Average(ap => ap.MagneticVariation):00.0000}
+{-ifrAirports.Average(ap => ap.MagneticVariation):00.0000}
 US/{artcc};US/labels;US/geos;US/polygons;US/procedures;US/navaids;US/mvas
 ";
 	string artccFolder = Path.Combine(includeFolder, artcc);
