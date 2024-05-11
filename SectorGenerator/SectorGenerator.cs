@@ -43,8 +43,11 @@ await Task.WhenAll([
 ]);
 
 // Keep the compiler happy with fallback checks.
-cifp ??= CIFP.Load();
-osm ??= await Osm.Load();
+if (cifp is null || osm is null)
+{
+	Console.WriteLine(" FAILED!");
+	return;
+}
 Console.WriteLine(" Done!");
 
 Console.Write("Allocating airports to centers...");
@@ -495,3 +498,5 @@ F;coast.geo
 
 	Console.Write($"{artcc} ");
 });
+
+Console.WriteLine(" All Done!");
