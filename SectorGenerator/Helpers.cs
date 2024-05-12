@@ -1,5 +1,4 @@
 ﻿using System.Net.Http.Json;
-using System.Runtime.ConstrainedExecution;
 using System.Text.Json.Nodes;
 
 using WSleeman.Osm;
@@ -62,12 +61,12 @@ internal static class Helpers
 		return [.. positions.Where(jo => { string pos = jo["composePosition"]!.GetValue<string>(); return pos.StartsWith(prefix); }).Concat(centerObjs)];
 	}
 
-	public static string DMS(double value, bool longitude) =>
+	public static string Dms(double value, bool longitude) =>
 		longitude
 		? $"{(value >= 0 ? 'E' : 'W')}{(int)Math.Abs(value):000}.{(int)(Math.Abs(value) * 60) % 60:00}.{Math.Abs(value) * 360 % 60:00.000}"
 		: $"{(value >= 0 ? 'N' : 'S')}{(int)Math.Abs(value):00}.{(int)(Math.Abs(value) * 60) % 60:00}.{Math.Abs(value) * 360 % 60:00.000}";
 
-	public static string DMS(decimal value, bool longitude) => DMS((double)value, longitude);
+	public static string DMS(decimal value, bool longitude) => Dms((double)value, longitude);
 
 	/// <summary>
 	/// Gets the distance in nautical miles between two <see cref="OsmSharp.Node">Nodes</see>.
@@ -182,6 +181,37 @@ internal static class Helpers
 		}
 
 		return w with { Nodes = newPoints };
+	}
+
+	public static Way? TryFabricateBoundary(this Relation r)
+	{
+		HashSet<Way> rWays = [.. r.Members.Where(i => i is Way w && w.Nodes.Length > 1).Cast<Way>()];
+
+		if (rWays.Count == 0)
+			return null;
+
+		Way seed = rWays.MaxBy(w => w.Nodes.Length)!;
+		rWays.Remove(seed);
+
+		while (rWays.Where(w =>
+				w.Nodes[0] == seed.Nodes[0] ||
+				w.Nodes[0] == seed.Nodes[^1] ||
+				w.Nodes[^1] == seed.Nodes[0] ||
+				w.Nodes[^1] == seed.Nodes[^1]
+			).MaxBy(w => w.Nodes.Length) is Way addWay)
+		{
+			rWays.Remove(addWay);
+			if (addWay.Nodes[0] == seed.Nodes[0])
+				seed = seed with { Nodes = [.. addWay.Nodes.Reverse().Concat(seed.Nodes[1..])] };
+			else if (addWay.Nodes[0] == seed.Nodes[^1])
+				seed = seed with { Nodes = [.. seed.Nodes.Concat(addWay.Nodes[1..])] };
+			else if (addWay.Nodes[^1] == seed.Nodes[0])
+				seed = seed with { Nodes = [.. addWay.Nodes.Concat(seed.Nodes[1..])] };
+			else
+				seed = seed with { Nodes = [.. seed.Nodes.Concat(addWay.Nodes[..^1].Reverse())] };
+		}
+
+		return seed with { Tags = r.Tags };
 	}
 }
 

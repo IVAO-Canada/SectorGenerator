@@ -14,7 +14,7 @@ using static SectorGenerator.Helpers;
 
 Config config = File.Exists("config.json") ? JsonSerializer.Deserialize<Config>(File.ReadAllText("config.json")) : Config.Default;
 
-Console.Write("Getting IVAO API token...");
+Console.Write("Getting IVAO API token..."); await Console.Out.FlushAsync();
 string apiToken, apiRefreshToken;
 using (Oauth oauth = new())
 {
@@ -30,7 +30,7 @@ using (Oauth oauth = new())
 Console.WriteLine($" Done! (Refresh: {apiRefreshToken})");
 
 // Long loading threads in parallel!
-Console.Write("Downloading ARTCC boundaries, CIFPs, and OSM data...");
+Console.Write("Downloading ARTCC boundaries, CIFPs, and OSM data..."); await Console.Out.FlushAsync();
 CIFP? cifp = null;
 Osm? osm = null;
 Dictionary<string, (double Latitude, double Longitude)[]> artccBoundaries = [];
@@ -50,7 +50,7 @@ if (cifp is null || osm is null)
 }
 Console.WriteLine(" Done!");
 
-Console.Write("Allocating airports to centers...");
+Console.Write("Allocating airports to centers..."); await Console.Out.FlushAsync();
 Dictionary<string, HashSet<Aerodrome>> centerAirports = [];
 
 // Generate copy-pasteable Webeye shapes for each of the ARTCCs.
@@ -75,7 +75,7 @@ foreach (var (artcc, points) in artccBoundaries)
 
 Console.WriteLine(" Done!");
 
-Console.Write("Allocating runways to centers...");
+Console.Write("Allocating runways to centers..."); await Console.Out.FlushAsync();
 Dictionary<string, HashSet<(string Airport, HashSet<Runway> Runways)>> centerRunways = [];
 
 foreach (var (artcc, points) in artccBoundaries)
@@ -83,7 +83,7 @@ foreach (var (artcc, points) in artccBoundaries)
 
 Console.WriteLine(" Done!");
 
-Console.Write("Getting ATC positions...");
+Console.Write("Getting ATC positions..."); await Console.Out.FlushAsync();
 var atcPositions = await GetAtcPositionsAsync(apiToken, "K", faaArtccs.Select(a => "K" + a));
 (JsonObject Position, string Artcc)[] positionArtccs = [..atcPositions.Select(p => {
 	string facility = p["composePosition"]!.GetValue<string>().Split("_")[0];
@@ -133,7 +133,7 @@ Directory.CreateDirectory(navaidFolder);
 string mvaFolder = Path.Combine(includeFolder, "mvas");
 Directory.CreateDirectory(mvaFolder);
 
-Console.Write("Generating shared navigation data...");
+Console.Write("Generating shared navigation data..."); await Console.Out.FlushAsync();
 File.WriteAllLines(Path.Combine(navaidFolder, "ndb.ndb"), [..cifp.Navaids.SelectMany(kvp => kvp.Value).Where(nv => nv is NDB).Cast<NDB>()
 	.Select(ndb => $"{ndb.Identifier} ({ndb.Name});{ndb.Channel};{ndb.Position.Latitude:00.0####};{ndb.Position.Longitude:000.0####};0;")]);
 File.WriteAllLines(Path.Combine(navaidFolder, "vor.vor"), [..cifp.Navaids.SelectMany(kvp => kvp.Value).Where(nv => nv is VOR).Cast<VOR>()
@@ -141,7 +141,7 @@ File.WriteAllLines(Path.Combine(navaidFolder, "vor.vor"), [..cifp.Navaids.Select
 string navaidBlock = "[NDB]\r\nF;ndb.ndb\r\n\r\n[VOR]\r\nF;vor.vor\r\n";
 Console.WriteLine(" Done!");
 
-Console.Write("Partitioning airport data...");
+Console.Write("Partitioning airport data..."); await Console.Out.FlushAsync();
 Osm apBoundaries = osm.GetFiltered(g =>
 	g is Way or Relation &&
 	g["aeroway"] == "aerodrome" &&
@@ -151,8 +151,12 @@ Osm apBoundaries = osm.GetFiltered(g =>
 
 IDictionary<string, Osm> apOsms = osm.GetFiltered(item => item is not Node n || n["aeroway"] is "parking_position").Group(
 	apBoundaries.Ways.Values
-		.Concat(apBoundaries.Relations.Values.Where(r => r.Members.Any(m => m is Way))
-		.SelectMany(r => r.Members.Where(i => i is Way w).Select(w => (Way)w with { Tags = w.Tags.Append(new("icao", r["icao"]!)).ToFrozenDictionary() })))
+		.Concat(
+			apBoundaries.Relations.Values
+				.Select(r => r.TryFabricateBoundary())
+				.Where(r => r is not null)
+				.Cast<Way>()
+		)
 		.Select(w => (w["icao"], w))
 		.OrderBy(kvp => kvp.w.Tags.ContainsKey("military") ? 1 : 0)
 		.DistinctBy(kvp => kvp.Item1)
@@ -167,11 +171,12 @@ Dictionary<string, Way[]> artccOsmOnlyIcaos =
 	).ToDictionary(
 		kvp => kvp.Key,
 		kvp => kvp.Value.Ways.Values.Concat(kvp.Value.Relations.Values
-			.Where(v => v.Members.Any(m => m is Way))
-			.Select(v => (Way)v.Members.MaxBy(m => m is Way w ? w.Nodes.Length : -1)! with { Tags = v.Tags })).ToArray());
+			.Select(v => v.TryFabricateBoundary())
+			.Where(v => v is not null)
+			.Cast<Way>()).ToArray());
 
 Console.WriteLine($" Done!");
-Console.Write("Generating labels and centerlines...");
+Console.Write("Generating labels and centerlines..."); await Console.Out.FlushAsync();
 
 const double CHAR_WIDTH = 0.0001;
 foreach (var (icao, apOsm) in apOsms)
@@ -204,7 +209,7 @@ foreach (var (icao, apOsm) in apOsms)
 }
 
 Console.WriteLine($" Done!");
-Console.Write("Generating coastline...");
+Console.Write("Generating coastline..."); await Console.Out.FlushAsync();
 Way[] coastlineGeos = Coastline.LoadTopologies("coastline")['i'];
 
 File.WriteAllLines(
@@ -217,7 +222,7 @@ File.WriteAllLines(
 );
 
 Console.WriteLine($" Done!");
-Console.Write("Generating polygons...");
+Console.Write("Generating polygons..."); await Console.Out.FlushAsync();
 
 var polygonBlocks = apOsms.AsParallel().AsUnordered().Select(input =>
 {
@@ -272,7 +277,7 @@ foreach (var (icao, tfl) in polygonBlocks.Where(i => i.Item2.Length > 0))
 	File.WriteAllText(Path.Combine(polygonFolder, icao + ".tfl"), tfl);
 
 Console.WriteLine($" Done!");
-Console.Write("Generating procedures...");
+Console.Write("Generating procedures..."); await Console.Out.FlushAsync();
 ConcurrentDictionary<string, HashSet<NamedCoordinate>> apProcFixes = [];
 Procedures procs = new(cifp);
 
@@ -321,8 +326,8 @@ Parallel.ForEach(faaArtccs, async artcc =>
 	double cosLat = Math.Cos(centerpoint.Latitude * Math.PI / 180);
 
 	string infoBlock = $@"[INFO]
-{DMS(centerpoint.Latitude, false)}
-{DMS(centerpoint.Longitude, true)}
+{Dms(centerpoint.Latitude, false)}
+{Dms(centerpoint.Longitude, true)}
 60
 {60 * Math.Abs(cosLat):00}
 {-ifrAirports.Average(ap => ap.MagneticVariation):00.0000}
@@ -496,7 +501,7 @@ F;coast.geo
 {artccBlock}
 {geoBlock}");
 
-	Console.Write($"{artcc} ");
+	Console.Write($"{artcc} "); await Console.Out.FlushAsync();
 });
 
 Console.WriteLine(" All Done!");
