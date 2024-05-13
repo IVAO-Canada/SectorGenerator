@@ -514,7 +514,7 @@ F;online.ply
 		.Select(ap => (
 			Pos: string.Join(' ',
 				positionArtccs[artcc]
-					.Where(p => p["airportId"]?.GetValue<string>() == ap.Icao && p["facility"]?.GetValue<string>() == "TWR")
+					.Where(p => p["airportId"]?.GetValue<string>() == ap.Icao && p["position"]?.GetValue<string>() == "TWR")
 					.Select(p => p["composePosition"]!.GetValue<string>())
 			),
 			Bounds: ap.Boundary

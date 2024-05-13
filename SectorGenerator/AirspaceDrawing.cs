@@ -288,12 +288,12 @@ internal static class WebeyeAirspaceDrawing
 	public static string ToPolyfillPath(string position, string facility, (double Lat, double Lon)[] points)
 	{
 		string color = facility switch {
-			"CTR" or "FSS" => "#7B9AAF11",
-			"APP" or "DEP" => "#70A5EC22",
-			"TWR" => "#FF575133",
+			"CTR" or "FSS" => "#151A1D",	// #7B9AAF
+			"APP" or "DEP" => "#131C27",	// #70A5EC
+			"TWR" => "#D54944",             // #FF5751
 			_ => ""
 		};
 
-		return string.Join("\r\n", points.Append(points[0]).Select(p => $"{p.Lat:00.0####};{p.Lon:000.0####};").Prepend($"{position};{color};1;{color};1;"));
+		return string.Join("\r\n", points.Append(points[0]).Select(p => $"{p.Lat:00.0####};{p.Lon:000.0####};").Prepend($"{position};{color};1;{color};"));
 	}
 }
