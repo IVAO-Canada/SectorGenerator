@@ -304,7 +304,7 @@ Parallel.ForEach(cifp.Aerodromes.Values, airport =>
 });
 
 Console.WriteLine($" Done!");
-SemaphoreSlim mrvaWrites = new(1);
+ConcurrentDictionary<string, string> mrvaWrites = [];
 
 Parallel.ForEach(faaArtccs, async artcc =>
 {
@@ -461,15 +461,10 @@ F;low.artcc
 	}
 
 	foreach (var (fn, volume) in mrvas.Volumes)
-	{
-		await mrvaWrites.WaitAsync();
-		if (!File.Exists(Path.Combine(mvaFolder, "K" + fn + ".mva")))
-			File.WriteAllLines(Path.Combine(mvaFolder, "K" + fn + ".mva"), volume.Select(seg => string.Join("\r\n",
+		mrvaWrites[fn] = string.Join("\r\n", volume.Select(seg => string.Join("\r\n",
 				seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
 								  .Prepend(genLabelLine(fn, seg))
 			)));
-		mrvaWrites.Release();
-	}
 
 	// Airports (additional).
 	File.AppendAllLines(Path.Combine(artccFolder, "airports.ap"), [..
@@ -503,5 +498,8 @@ F;coast.geo
 
 	Console.Write($"{artcc} "); await Console.Out.FlushAsync();
 });
+
+foreach (var kvp in mrvaWrites)
+	File.WriteAllText(Path.Combine(mvaFolder, "K" + kvp.Key + ".mva"), kvp.Value);
 
 Console.WriteLine(" All Done!");
