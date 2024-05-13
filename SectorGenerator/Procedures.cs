@@ -122,6 +122,25 @@ internal class Procedures(CIFP cifp)
 		{
 			bool globalHandled = false;
 
+			string iapName =
+				iap.Name[..3] switch {
+					"VOR" or "NDB" or "GPS" => iap.Name,
+					"VDM" => "DME" + iap.Name[3..],
+					_ => iap.Name[0] switch {
+						'I' => "ILS",
+						'L' => "LOC",
+						'B' => "BC",
+						'R' or 'H' => "RNV",
+						'S' or 'V' => "VOR",
+						'Q' or 'N' => "NDB",
+						'D' => "DME",
+						'X' => "LDA",
+						'P' => "GPS",
+						'U' => "SDF",
+						_ => ((Func<string>)(() => { Console.WriteLine(iap.Airport + ": " + iap.Name); return "???"; }))()
+					} + iap.Name[1..]
+				};
+
 			foreach (var (inboundTransition, outboundTransition) in iap.EnumerateTransitions())
 			{
 				string runways = outboundTransition?.Replace("RW", "") ?? (rws is null ? "" : string.Join(':', rws.Select(rw => rw.Identifier)));
@@ -134,10 +153,10 @@ internal class Procedures(CIFP cifp)
 				NamedCoordinate midPoint = namedPointsOnProc.Length > 0 ? namedPointsOnProc[namedPointsOnProc.Length / 2] : new(apIcao, new());
 
 				if (inboundTransition is string it)
-					iapLines.Add($"{apIcao};{runways};{it}.{iap.Name};{midPoint.Name};{midPoint.Name};3;");
+					iapLines.Add($"{apIcao};{runways};{it}.{iapName};{midPoint.Name};{midPoint.Name};3;");
 				else
 				{
-					iapLines.Add($"{apIcao};{runways};{iap.Name};{midPoint.Name};{midPoint.Name};3;");
+					iapLines.Add($"{apIcao};{runways};{iapName};{midPoint.Name};{midPoint.Name};3;");
 					globalHandled = true;
 				}
 
@@ -150,7 +169,7 @@ internal class Procedures(CIFP cifp)
 
 			if (!globalHandled)
 			{
-				iapLines.Add($"{apIcao};{(rws is null ? "" : string.Join(':', rws.Select(rw => rw.Identifier)))};{iap.Name};{apIcao};{apIcao};3;");
+				iapLines.Add($"{apIcao};{(rws is null ? "" : string.Join(':', rws.Select(rw => rw.Identifier)))};{iapName};{apIcao};{apIcao};3;");
 				var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, iap.SelectAllRoutes(_cifp.Fixes));
 				iapLines.AddRange(massLines);
 				fixes.UnionWith(massFixes);

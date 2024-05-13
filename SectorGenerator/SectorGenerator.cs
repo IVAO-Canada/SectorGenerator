@@ -350,7 +350,7 @@ STOPBAR;#B30000;
 	// ATC Positions.
 	string atcBlock = "[ATC]\r\nF;atc.atc\r\n";
 	File.WriteAllLines(Path.Combine(artccFolder, "atc.atc"), [..
-		positionArtccs.Where(p => p.Artcc == artcc).Select(p => $"{p.Position["composePosition"]!.GetValue<string>()};{p.Position["frequency"]!.GetValue<decimal>()};")
+		positionArtccs.Where(p => p.Artcc == artcc).Select(p => $"{p.Position["composePosition"]!.GetValue<string>()};{p.Position["frequency"]!.GetValue<decimal>():000.000};")
 	]);
 
 	// Airports (main).
