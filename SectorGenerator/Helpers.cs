@@ -100,15 +100,15 @@ internal static class Helpers
 	}
 
 	public static readonly Dictionary<string, string> TraconCenters = new() {
-		{ "KPCT", "KZDC" },
-		{ "KSCT", "KZLA" },
-		{ "KNCT", "KZOA" },
-		{ "KN90", "KZNY" },
-		{ "KL30", "KZLA" },
-		{ "KA80", "KZTL" },
-		{ "KI90", "KZHU" },
-		{ "KJSD", "KZNY" }, // Damn you Sikorsky
-		{ "KMUI", "KZNY" }
+		{ "KPCT", "ZDC" },
+		{ "KSCT", "ZLA" },
+		{ "KNCT", "ZOA" },
+		{ "KN90", "ZNY" },
+		{ "KL30", "ZLA" },
+		{ "KA80", "ZTL" },
+		{ "KI90", "ZHU" },
+		{ "KJSD", "ZNY" }, // Damn you Sikorsky
+		{ "KMUI", "ZNY" }
 	};
 
 	public static Way Inflate(this Way w, double radius)

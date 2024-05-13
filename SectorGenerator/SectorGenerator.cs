@@ -85,24 +85,24 @@ Console.WriteLine(" Done!");
 
 Console.Write("Getting ATC positions..."); await Console.Out.FlushAsync();
 var atcPositions = await GetAtcPositionsAsync(apiToken, "K", faaArtccs.Select(a => "K" + a));
-(JsonObject Position, string Artcc)[] positionArtccs = [..atcPositions.Select(p => {
+Dictionary<string, JsonObject[]> positionArtccs = atcPositions.GroupBy(p => {
 	string facility = p["composePosition"]!.GetValue<string>().Split("_")[0];
 
 	if (facility.StartsWith("KZ"))
-		return (p, facility[1..]);
+		return facility[1..];
 	else if (TraconCenters.TryGetValue(facility, out string? artcc))
-		return (p, artcc);
+		return artcc;
 	else if (!centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == facility)))
 	{
 		if ((p["airportId"] ?? p["centerId"])?.GetValue<string>() is string pos && centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == pos)))
-			return (p, centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == pos)).Key);
+			return centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == pos)).Key;
 
 		Console.WriteLine(facility);
-		return (p, "KZZZ");
+		return "KZZZ";
 	}
 	else
-		return (p, centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == facility)).Key);
-})];
+		return centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == facility)).Key;
+}).ToDictionary(g => g.Key, g => g.ToArray());
 
 Console.WriteLine(" Done!");
 
@@ -149,8 +149,7 @@ Osm apBoundaries = osm.GetFiltered(g =>
 	g["abandoned"] is null
 );
 
-IDictionary<string, Osm> apOsms = osm.GetFiltered(item => item is not Node n || n["aeroway"] is "parking_position").Group(
-	apBoundaries.Ways.Values
+Dictionary<string, Way> apBoundaryWays = apBoundaries.Ways.Values
 		.Concat(
 			apBoundaries.Relations.Values
 				.Select(r => r.TryFabricateBoundary())
@@ -161,7 +160,10 @@ IDictionary<string, Osm> apOsms = osm.GetFiltered(item => item is not Node n || 
 		.OrderBy(kvp => kvp.w.Tags.ContainsKey("military") ? 1 : 0)
 		.DistinctBy(kvp => kvp.Item1)
 		.Where(kvp => kvp.Item1 is not null)
-		.ToDictionary(kvp => kvp.Item1!, kvp => kvp.w),
+		.ToDictionary(kvp => kvp.Item1!, kvp => kvp.w);
+
+IDictionary<string, Osm> apOsms = osm.GetFiltered(item => item is not Node n || n["aeroway"] is "parking_position").Group(
+	apBoundaryWays,
 	30
 );
 
@@ -350,7 +352,7 @@ STOPBAR;#B30000;
 	// ATC Positions.
 	string atcBlock = "[ATC]\r\nF;atc.atc\r\n";
 	File.WriteAllLines(Path.Combine(artccFolder, "atc.atc"), [..
-		positionArtccs.Where(p => p.Artcc == artcc).Select(p => $"{p.Position["composePosition"]!.GetValue<string>()};{p.Position["frequency"]!.GetValue<decimal>():000.000};")
+		positionArtccs[artcc].Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};")
 	]);
 
 	// Airports (main).
@@ -414,6 +416,9 @@ F;artcc.artcc
 
 [ARTCC LOW]
 F;low.artcc
+
+[ARTCC HIGH]
+F;high.artcc
 ";
 
 	File.WriteAllText(Path.Combine(artccFolder, "artcc.artcc"), $@"{string.Join("\r\n", artccBoundaries[artcc].Append(artccBoundaries[artcc][0]).Select(bp => $"T;{artcc};{bp.Latitude:00.0####};{bp.Longitude:000.0####};"))}
@@ -430,8 +435,14 @@ F;low.artcc
 )}
 ");
 
-	AirspaceDrawing ad = new(cifp.Airspaces.Where(ap => ap.Regions.Any(r => r.Class is ControlledAirspace.AirspaceClass.B && r.Boundaries.Any(b => IsInPolygon(artccBoundaries[artcc], ((double)b.Vertex.Latitude, (double)b.Vertex.Longitude))))));
+	CifpAirspaceDrawing ad = new(cifp.Airspaces.Where(ap => ap.Regions.Any(r => r.Class is ControlledAirspace.AirspaceClass.B && r.Boundaries.Any(b => IsInPolygon(artccBoundaries[artcc], ((double)b.Vertex.Latitude, (double)b.Vertex.Longitude))))));
 	File.WriteAllText(Path.Combine(artccFolder, "low.artcc"), ad.ClassBPaths);
+	File.WriteAllText(Path.Combine(artccFolder, "high.artcc"),
+		string.Join("\r\n",
+			positionArtccs[artcc].Where(p => p["position"]?.GetValue<string>() is "APP" && p["regionMap"] is JsonArray region && region.Count > 0 && p["airportId"] is not null)
+			.Select(p => WebeyeAirspaceDrawing.ToArtccPath(p["airportId"]!.GetValue<string>(), p["regionMap"]!.AsArray()))
+		)
+	);
 
 	// TODO: VFR Routes
 	string vfrBlock = "[VFRFIX]\r\nF;vfr.fix\r\n";
@@ -480,8 +491,36 @@ F;low.artcc
 	string geoBlock = @$"[GEO]
 F;coast.geo
 {string.Join("\r\n", centerAirports[artcc].Select(ap => $"F;{ap.Identifier}.geo"))}
-{(artccOsmOnlyIcaos.TryGetValue(artcc, out var aoois) ? string.Join("\r\n", aoois.Select(ap => $"F;{ap}.geo")) : "")}
+{(artccOsmOnlyIcaos.TryGetValue(artcc, out var aoois) ? string.Join("\r\n", aoois.Where(ap => (ap["icao"] ?? ap["faa"]) is not null).Select(ap => $"F;{ap["icao"] ?? ap["faa"]}.geo")) : "")}
 ";
+
+	// Polyfills for dynamic sectors.
+	string polyfillBlock = $@"[FILLCOLOR]
+F;online.ply
+";
+	File.WriteAllText(Path.Combine(artccFolder, "online.ply"), $@"{WebeyeAirspaceDrawing.ToPolyfillPath($"K{artcc}_CTR", "CTR", artccBoundaries[artcc])}
+
+{string.Join("\r\n\r\n",
+	positionArtccs[artcc]
+		.Where(p => p["composePosition"] is not null && p["position"]?.GetValue<string>() is "APP" or "DEP" or "CTR" or "FSS" && p["regionMap"] is JsonArray map && map.Count > 1)
+		.Select(p => WebeyeAirspaceDrawing.ToPolyfillPath(p["composePosition"]!.GetValue<string>(), p["position"]!.GetValue<string>(), p["regionMap"]!.AsArray()))
+)}
+
+{string.Join("\r\n\r\n",
+	centerAirports[artcc]
+		.Select(ad => apBoundaryWays.TryGetValue(ad.Identifier, out var retval) ? (ad.Identifier, retval) : ((string, Way)?)null)
+		.Where(ap => ap is not null)
+		.Cast<(string Icao, Way Boundary)>()
+		.Select(ap => (
+			Pos: string.Join(' ',
+				positionArtccs[artcc]
+					.Where(p => p["airportId"]?.GetValue<string>() == ap.Icao && p["facility"]?.GetValue<string>() == "TWR")
+					.Select(p => p["composePosition"]!.GetValue<string>())
+			),
+			Bounds: ap.Boundary
+		))
+		.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Pos, "TWR", ap.Bounds))
+)}");
 
 	File.WriteAllText(Path.Combine(config.OutputFolder, $"K{artcc.ToUpperInvariant()}.isc"), $@"{infoBlock}
 {defineBlock}
@@ -494,7 +533,8 @@ F;coast.geo
 {vfrBlock}
 {mvaBlock}
 {artccBlock}
-{geoBlock}");
+{geoBlock}
+{polyfillBlock}");
 
 	Console.Write($"{artcc} "); await Console.Out.FlushAsync();
 });

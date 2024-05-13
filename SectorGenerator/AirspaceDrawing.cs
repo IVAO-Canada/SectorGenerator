@@ -1,12 +1,14 @@
 ﻿using CIFPReader;
 
+using System.Text.Json.Nodes;
+
 using static CIFPReader.ControlledAirspace;
 
 namespace SectorGenerator;
 
-internal class AirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
+internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 {
-	private readonly Airspace[] _airspaces = [..cifpAirspaces];
+	private readonly Airspace[] _airspaces = [.. cifpAirspaces];
 	private readonly (AirspaceClass AsClass, (float Latitude, float Longitude) From, (float Latitude, float Longitude) To)[] _linearized = [.. cifpAirspaces.SelectMany(LinearizeAirspace)];
 
 	private static (AirspaceClass AsClass, (float Latitude, float Longitude) From, (float Latitude, float Longitude) To)[] LinearizeAirspace(Airspace asp)
@@ -257,5 +259,41 @@ internal class AirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 		public record StraightLineSegment(Coordinate Point, string? PointLabel) : RouteSegment(Point, PointLabel) { }
 		public record ArcSegment(Coordinate ControlPoint, Coordinate End, string? PointLabel) : RouteSegment(End, PointLabel) { }
 		public record InvisibleSegment(Coordinate Point) : RouteSegment(Point, null) { }
+	}
+}
+
+internal static class WebeyeAirspaceDrawing
+{
+	public static string ToArtccPath(string position, JsonArray regionMap)
+	{
+		(double Lat, double Lon)[] points = [..
+			regionMap.Where(i => i is JsonObject).Cast<JsonObject>().Select(p => (p["lat"]!.GetValue<double>(), p["lng"]!.GetValue<double>()))
+		];
+
+		return string.Join("\r\n", points.Append(points[0]).Select(p =>$"T;{position};{p.Lat:00.0####};{p.Lon:000.0####};"));
+	}
+
+	public static string ToPolyfillPath(string position, string facility, JsonArray regionMap)
+	{
+		(double Lat, double Lon)[] points = [..
+			regionMap.Where(i => i is JsonObject).Cast<JsonObject>().Select(p => (p["lat"]!.GetValue<double>(), p["lng"]!.GetValue<double>()))
+		];
+
+		return ToPolyfillPath(position, facility, points);
+	}
+
+	public static string ToPolyfillPath(string position, string facility, WSleeman.Osm.Way boundary) =>
+		ToPolyfillPath(position, facility, [..boundary.Nodes.Select(n => (n.Latitude, n.Longitude))]);
+
+	public static string ToPolyfillPath(string position, string facility, (double Lat, double Lon)[] points)
+	{
+		string color = facility switch {
+			"CTR" or "FSS" => "#7B9AAF11",
+			"APP" or "DEP" => "#70A5EC22",
+			"TWR" => "#FF575133",
+			_ => ""
+		};
+
+		return string.Join("\r\n", points.Append(points[0]).Select(p => $"{p.Lat:00.0####};{p.Lon:000.0####};").Prepend($"{position};{color};1;{color};1;"));
 	}
 }
