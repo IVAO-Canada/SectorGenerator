@@ -6,6 +6,22 @@ internal static class ArtccBoundaries
 {
 	static readonly HttpClient _http = new();
 
+	const string ZNY_OCEANIC_INJECT = @"ZNY,0,2000,36420900N,072395800W,ZDC
+ZNY,0,2000,35054000N,072395800W,ZWY
+ZNY,0,2000,32120700N,076490600W,ZWY
+ZNY,0,3000,32154400N,077000000W,ZJX
+ZNY,0,3000,32580400N,076464600W,ZJX
+ZNY,0,2000,33250900N,076285200W,ZDC
+ZNY,0,2000,34360100N,075410200W,ZDC
+ZNY,0,2000,35182900N,075112400W,ZDC
+ZNY,0,2000,34140000N,073570000W,ZDC
+ZNY,0,2000,34214600N,073450600W,ZDC
+ZNY,0,2000,34291700N,073342300W,ZDC
+ZNY,0,2000,35294900N,074561300W,ZDC
+ZNY,0,2000,36471600N,074355900W,ZDC
+ZNY,0,2000,36470181N,074292976W,ZDC
+ZNY,0,2000,36420900N,072395800W,ZDC";
+
 	public static async Task<(Dictionary<string, (double Latitude, double Longitude)[]> Boundaries, Dictionary<string, string[]> Neighbours, string[] Faa)> GetBoundariesAsync(string? link = null)
 	{
 		string boundaryFileContents;
@@ -22,7 +38,10 @@ internal static class ArtccBoundaries
 				.ToArray();
 
 			link = allLinks.Order().Last();
-			boundaryFileContents = await _http.GetStringAsync(link);
+			List<string> boundaryLines = [..(await _http.GetStringAsync(link)).Split("\r\n")];
+			int idx = boundaryLines.IndexOf("ZNY,0,2000,36420900N,072395800W,ZDC");
+			boundaryLines[idx] = ZNY_OCEANIC_INJECT;
+			boundaryFileContents = string.Join("\r\n", boundaryLines);
 			File.WriteAllText("artccBoundaries.csv", boundaryFileContents);
 		}
 		else
