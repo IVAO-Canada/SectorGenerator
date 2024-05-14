@@ -50,14 +50,11 @@ if (cifp is null || osm is null)
 }
 Console.WriteLine(" Done!");
 
-Console.Write("Allocating airports to centers..."); await Console.Out.FlushAsync();
-Dictionary<string, HashSet<Aerodrome>> centerAirports = [];
-
 // Generate copy-pasteable Webeye shapes for each of the ARTCCs.
 (string Artcc, string Shape)[] artccWebeyeShapes = [..
 	artccBoundaries.Select(b => (
 		b.Key,
-		string.Join("\r\n", b.Value.Reverse().Select(p => $"{(int)p.Latitude:00}{(int)(p.Latitude * 60 % 60):00}{(int)(p.Latitude * 360 % 60):00}N{(int)-p.Longitude:000}{(int)(-p.Longitude * 60 % 60):00}{(int)(-p.Longitude * 360 % 60):00}W").ToArray())
+		string.Join("\r\n", b.Value.Reverse().Select(p => $"{p.Latitude:00.0####}:{p.Longitude:000.0####}").ToArray())
 	))
 ];
 
@@ -66,6 +63,9 @@ if (!Directory.Exists("webeye"))
 
 foreach (var (artcc, shape) in artccWebeyeShapes)
 	File.WriteAllText(Path.ChangeExtension(Path.Join("webeye", artcc), "txt"), shape);
+
+Console.Write("Allocating airports to centers..."); await Console.Out.FlushAsync();
+Dictionary<string, HashSet<Aerodrome>> centerAirports = [];
 
 foreach (var (artcc, points) in artccBoundaries)
 	centerAirports.Add(artcc, [..
