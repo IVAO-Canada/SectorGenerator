@@ -3,8 +3,6 @@ using System.Collections.Frozen;
 using System.Text.RegularExpressions;
 using System.Xml;
 
-using WSleeman.Osm;
-
 using static SectorGenerator.Helpers;
 
 namespace SectorGenerator;
@@ -15,6 +13,8 @@ internal partial class Mrva
 
 	static ConcurrentDictionary<string, MrvaSegment[]> _mrvaBlobs = [];
 	static readonly HttpClient _http = new();
+	static string? _directoryListing = null;
+	static ConcurrentDictionary<string, string> _fileCache = [];
 
 	public FrozenDictionary<string, MrvaSegment[]> Volumes { get; private set; } = FrozenDictionary<string, MrvaSegment[]>.Empty;
 
@@ -35,12 +35,18 @@ internal partial class Mrva
 		if (_mrvaBlobs.Count > 0)
 			return;
 
-		string dirListing = await _http.GetStringAsync(FAA_MRVA_LISTING);
+		_directoryListing ??= await _http.GetStringAsync(FAA_MRVA_LISTING);
 
-		Parallel.ForEach(Fus3Url().Matches(dirListing).Select(m => m.Groups["url"].Value), xmlUrl =>
+		Parallel.ForEach(Fus3Url().Matches(_directoryListing).Select(m => m.Groups["url"].Value), async xmlUrl =>
 		{
 			XmlDocument xmlDoc = new();
-			xmlDoc.Load(FAA_MRVA_ROOT + xmlUrl);
+			if (!_fileCache.TryGetValue(FAA_MRVA_ROOT + xmlUrl, out string? mrvaXmlData))
+			{
+				mrvaXmlData = await _http.GetStringAsync(FAA_MRVA_ROOT + xmlUrl);
+				_fileCache[FAA_MRVA_ROOT + xmlUrl] = mrvaXmlData;
+			}
+
+			xmlDoc.LoadXml(mrvaXmlData);
 			if (xmlDoc["ns8:AIXMBasicMessage"] is not XmlNode rootNode)
 				return;
 

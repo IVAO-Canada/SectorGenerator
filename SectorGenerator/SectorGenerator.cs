@@ -206,8 +206,14 @@ foreach (var (icao, apOsm) in apOsms)
 	string[] txilabels = taxiways.Labels.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
 	File.WriteAllLines(Path.Combine(labelFolder, icao + ".txi"), txilabels);
 
+	StringBuilder stoplineGeos = new();
+	// Stopbars
+	foreach (Way stopline in apOsm.GetFiltered(g => g is Way w && w.Nodes.Length > 1 && w["aeroway"] is "holding_position").Ways.Values)
+		foreach ((Node from, Node to) in stopline.Nodes[..^1].Zip(stopline.Nodes[1..]))
+			stoplineGeos.AppendLine($"{from.Latitude:00.0####};{from.Longitude:000.0####};{to.Latitude:00.0####};{to.Longitude:000.0####};STOPLINE;");
+
 	// Geos
-	File.WriteAllText(Path.Combine(geoFolder, icao + ".geo"), taxiways.Centerlines + "\r\n\r\n" + gates.Routes);
+	File.WriteAllText(Path.Combine(geoFolder, icao + ".geo"), gates.Routes + "\r\n\r\n" + taxiways.Centerlines + "\r\n\r\n" + stoplineGeos.ToString());
 }
 
 Console.WriteLine($" Done!");
@@ -216,7 +222,7 @@ Way[] coastlineGeos = Coastline.LoadTopologies("coastline")['i'];
 
 File.WriteAllLines(
 	Path.Combine(geoFolder, "coast.geo"),
-	coastlineGeos.Where(w => w.Nodes.Length >= 2 && !w.Nodes.Any(n => n.Latitude < 0 || n.Longitude > 0)).SelectMany(w =>
+	coastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => n.Latitude > 15 && n.Longitude < -50)).SelectMany(w =>
 		w.Nodes.Zip(w.Nodes.Skip(1).Append(w.Nodes[0])).Select(np =>
 			$"{np.First.Latitude:00.0####};{np.First.Longitude:000.0####};{np.Second.Latitude:00.0####};{np.Second.Longitude:000.0####};COAST;"
 		)
@@ -351,8 +357,9 @@ STOPBAR;#B30000;
 
 	// ATC Positions.
 	string atcBlock = "[ATC]\r\nF;atc.atc\r\n";
+	string allPositions = string.Join(' ', positionArtccs[artcc].Select(p => p["composePosition"]!.GetValue<string>()));
 	File.WriteAllLines(Path.Combine(artccFolder, "atc.atc"), [..
-		positionArtccs[artcc].Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};")
+		positionArtccs[artcc].Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};{allPositions};")
 	]);
 
 	// Airports (main).
@@ -435,8 +442,8 @@ F;high.artcc
 )}
 ");
 
-	CifpAirspaceDrawing ad = new(cifp.Airspaces.Where(ap => ap.Regions.Any(r => r.Class is ControlledAirspace.AirspaceClass.B && r.Boundaries.Any(b => IsInPolygon(artccBoundaries[artcc], ((double)b.Vertex.Latitude, (double)b.Vertex.Longitude))))));
-	File.WriteAllText(Path.Combine(artccFolder, "low.artcc"), ad.ClassBPaths);
+	CifpAirspaceDrawing ad = new(cifp.Airspaces.Where(ap => ap.Regions.Any(r => r.Class is ControlledAirspace.AirspaceClass.B or ControlledAirspace.AirspaceClass.C && r.Boundaries.Any(b => IsInPolygon(artccBoundaries[artcc], ((double)b.Vertex.Latitude, (double)b.Vertex.Longitude))))));
+	File.WriteAllText(Path.Combine(artccFolder, "low.artcc"), ad.ClassBPaths + "\r\n\r\n" + ad.ClassCPaths);
 	File.WriteAllText(Path.Combine(artccFolder, "high.artcc"),
 		string.Join("\r\n",
 			positionArtccs[artcc].Where(p => p["position"]?.GetValue<string>() is "APP" && p["regionMap"] is JsonArray region && region.Count > 0 && p["airportId"] is not null)
