@@ -1,5 +1,7 @@
 ﻿using CIFPReader;
 
+using NetTopologySuite.Noding.Snapround;
+
 namespace SectorGenerator;
 internal class Procedures(CIFP cifp)
 {
@@ -38,7 +40,9 @@ internal class Procedures(CIFP cifp)
 
 				if (_cifp.Runways[apIcao].FirstOrDefault(r => r.Identifier == runways) is Runway startRw)
 				{
-					startPoint = startRw.Endpoint.GetCoordinate();
+					startPoint =
+						_cifp.Runways[apIcao].FirstOrDefault(r => r.Identifier == startRw.OppositeIdentifier)?.Endpoint.GetCoordinate()
+						?? startRw.Endpoint.GetCoordinate();
 					string rwEnd = $"{apIcao}/RW{(startRw.OppositeIdentifier.TakeWhile(char.IsDigit).Count() < 2 ? "0" : "")}{startRw.OppositeIdentifier}";
 					sidLines.Add($"{rwEnd};{rwEnd};");
 				}
@@ -118,10 +122,13 @@ internal class Procedures(CIFP cifp)
 		_cifp.Runways.TryGetValue(apIcao, out var rws);
 		Aerodrome aerodrome = _cifp.Aerodromes[apIcao];
 
+		if (rws is null)
+			return ([], []);
+
+		string allRunways = string.Join(':', rws.Select(rw => rw.Identifier));
+
 		foreach (Approach iap in _cifp.Procedures.Values.SelectMany(ps => ps.Where(p => p is Approach a && a.Airport == apIcao)).Cast<Approach>().OrderBy(s => s.Name))
 		{
-			bool globalHandled = false;
-
 			string iapName =
 				iap.Name[..3] switch {
 					"VOR" or "NDB" or "GPS" => iap.Name,
@@ -141,50 +148,45 @@ internal class Procedures(CIFP cifp)
 					} + iap.Name[1..]
 				};
 
-			foreach (var (inboundTransition, outboundTransition) in iap.EnumerateTransitions())
-			{
-				string runways = outboundTransition?.Replace("RW", "") ?? (rws is null ? "" : string.Join(':', rws.Select(rw => rw.Identifier)));
+			string runways = new([.. iapName.SkipWhile(char.IsLetter).TakeWhile(c => char.IsDigit(c) || "LCRBA".Contains(c))]);
 
-				if (runways.EndsWith('B'))
-					runways = $"{runways[..^1]}L:{runways[..^1]}R";
+			if (runways.EndsWith('B'))
+				runways = $"{runways[..^1]}L:{runways[..^1]}R";
+			else if (char.IsLetter(runways[^1]) && !"LCR".Contains(runways[^1]))
+				System.Diagnostics.Debugger.Break();
 
-				NamedCoordinate[] namedPointsOnProc = [..iap.SelectRoute(inboundTransition, outboundTransition)
-					.Where(s => s.Endpoint is NamedCoordinate nc).Select(s => (NamedCoordinate)s.Endpoint!)];
-				NamedCoordinate midPoint = namedPointsOnProc.Length > 0 ? namedPointsOnProc[namedPointsOnProc.Length / 2] : new(apIcao, new());
+			ICoordinate midPoint = (ICoordinate)(iap.SelectRoute(null, null).FirstOrDefault(i => i.Endpoint is ICoordinate)?.Endpoint ?? aerodrome.Location);
 
-				if (inboundTransition is string it)
-					iapLines.Add($"{apIcao};{runways};{it}.{iapName};{midPoint.Name};{midPoint.Name};3;");
-				else
-				{
-					iapLines.Add($"{apIcao};{runways};{iapName};{midPoint.Name};{midPoint.Name};3;");
-					globalHandled = true;
-				}
+			if (midPoint is NamedCoordinate nc)
+				iapLines.Add($"{apIcao};{runways};{iapName};{nc.Name};{nc.Name};3;");
+			else
+				iapLines.Add($"{apIcao};{runways};{iapName};{midPoint.Latitude:00.0####};{midPoint.Longitude:000.0####};3;");
 
-				Coordinate startPoint = _cifp.Aerodromes[apIcao].Location.GetCoordinate();
-
-				var (transitionLines, transitionFixes) = Run(startPoint, aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, iap.SelectRoute(inboundTransition, outboundTransition));
-				iapLines.AddRange(transitionLines);
-				fixes.UnionWith(transitionFixes);
-			}
-
-			if (!globalHandled)
-			{
-				iapLines.Add($"{apIcao};{(rws is null ? "" : string.Join(':', rws.Select(rw => rw.Identifier)))};{iapName};{apIcao};{apIcao};3;");
-				var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, iap.SelectAllRoutes(_cifp.Fixes));
-				iapLines.AddRange(massLines);
-				fixes.UnionWith(massFixes);
-			}
+			var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, iap.SelectAllRoutes(_cifp.Fixes));
+			iapLines.AddRange(massLines);
+			fixes.UnionWith(massFixes);
 		}
 
 		return ([.. iapLines], [.. fixes]);
 	}
 
+	private static string lastLine = "";
 	private static (string[] Lines, NamedCoordinate[] Fixes) Run(Coordinate startPoint, int elevation, decimal magVar, string airportIcao, IEnumerable<Procedure.Instruction?> instructions)
 	{
 		List<string> lines = [];
 		HashSet<NamedCoordinate> fixes = [];
 		Procedure.Instruction? state = null;
 		bool breakPending = false;
+
+		void addLine(string line)
+		{
+
+			if (line == lastLine)
+				return;
+
+			lines.Add(line);
+			lastLine = line;
+		}
 
 		foreach (var instruction in instructions)
 		{
@@ -206,10 +208,10 @@ internal class Procedures(CIFP cifp)
 				if (epc is NamedCoordinate nc)
 				{
 					fixes.Add(nc);
-					lines.Add($"{nc.Name};{nc.Name};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
+					addLine($"{nc.Name};{nc.Name};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
 				}
 				else if (epc is Coordinate c)
-					lines.Add($"{c.Latitude:00.0####};{c.Longitude:000.0####};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
+					addLine($"{c.Latitude:00.0####};{c.Longitude:000.0####};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
 				else throw new NotImplementedException();
 
 				if (breakPending)
@@ -219,7 +221,9 @@ internal class Procedures(CIFP cifp)
 					if (lines[^1].Count(c => c == ';') <= 2)
 						lines[^1] += "<br>;";
 					else
-						lines[^1] = string.Join(';', lines[^1].Split(';')[..2]) + ";<br>;";
+						lines.Insert(lines.Count - 1, string.Join(';', lines[^1].Split(';')[..2]) + ";<br>;");
+
+					lastLine = lines[^1];
 				}
 			}
 
@@ -308,6 +312,21 @@ internal class Procedures(CIFP cifp)
 				return ([.. procPrev(), (startingPoint.GetCoordinate().FixRadialDistance(hdg, 0.25m), instruction.Altitude)], null);
 			else
 				throw new NotImplementedException();
+		}
+		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.Arc) && instruction.Via is Arc arc && arc.Centerpoint is not null && instruction.Endpoint is ICoordinate arcEnd)
+		{
+			Coordinate arcCenter = arc.Centerpoint.GetCoordinate();
+			TrueCourse startAngle = arcCenter.GetBearingDistance(startingPoint.GetCoordinate()).bearing ?? new(0);
+			TrueCourse endAngle = arcCenter.GetBearingDistance(arcEnd.GetCoordinate()).bearing ?? new(0);
+
+			decimal totalAngle = startAngle.Angle(endAngle);
+			bool up = arcEnd.Latitude < arcCenter.Latitude ^ arc.ArcTo.Degrees < 180;
+
+			List<Coordinate> intermediatePoints = [];
+			for (Course angle = startAngle; up ? angle.Degrees < endAngle.Degrees : angle.Degrees > endAngle.Degrees; angle += up ? 15m : -15m)
+				intermediatePoints.Add(arcCenter.FixRadialDistance(angle, arc.Radius));
+
+			return ([..procPrev(), ..intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted))], null);
 		}
 		else
 			return ([.. procPrev()], instruction);

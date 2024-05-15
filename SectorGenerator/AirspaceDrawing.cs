@@ -98,19 +98,19 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 
 	public string ClassBPaths => string.Join("\r\nT;Dummy;N000.00.00.000;W000.00.00.000;\r\n",
 		_linearized.Where(l => l.AsClass == AirspaceClass.B).Select(l =>
-			$"T;CLASS B;{l.From.Latitude:00.0####};{l.From.Longitude:000.0####};\r\nT;CLASS B;{l.To.Latitude:00.0####};{l.To.Longitude:000.0####};"
+			$"T;CLASS B;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
 		)
 	);
 
 	public string ClassCPaths => string.Join("\r\nT;Dummy;N000.00.00.000;W000.00.00.000;\r\n",
 		_linearized.Where(l => l.AsClass == AirspaceClass.C).Select(l =>
-			$"T;CLASS B;{l.From.Latitude:00.0####};{l.From.Longitude:000.0####};\r\nT;CLASS B;{l.To.Latitude:00.0####};{l.To.Longitude:000.0####};"
+			$"T;CLASS B;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
 		)
 	);
 
 	public string ClassDPaths => string.Join("\r\nT;Dummy;N000.00.00.000;W000.00.00.000;\r\n",
 		_linearized.Where(l => l.AsClass == AirspaceClass.D).Select(l =>
-			$"T;CLASS B;{l.From.Latitude:00.0####};{l.From.Longitude:000.0####};\r\nT;CLASS B;{l.To.Latitude:00.0####};{l.To.Longitude:000.0####};"
+			$"T;CLASS B;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
 		)
 	);
 
@@ -194,7 +194,7 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 
 				var midPoint = origin.FixRadialDistance(new TrueCourse((decimal)realBearing), startData.distance);
 
-				if (midPoint != vertex && midPoint != next && Math.Abs(clampAngle(getAngle(startBearing, realBearing) + getAngle(realBearing, endBearing))) > 5)
+				if (midPoint != vertex && midPoint != next && Math.Abs(clampAngle(getAngle(startBearing, realBearing) + getAngle(realBearing, endBearing))) > 15)
 				{
 					arcTo(vertex, midPoint, origin);
 					arcTo(midPoint, next, origin);

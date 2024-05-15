@@ -213,6 +213,11 @@ internal static class Helpers
 
 		return seed with { Tags = r.Tags };
 	}
+
+	public static IEnumerable<Way> WaysAndBoundaries(this Osm osm) =>
+		osm.Ways.Values.Concat(
+			osm.Relations.Values.Select(r => r.TryFabricateBoundary()).Where(w => w is not null).Cast<Way>()
+		);
 }
 
 public class Spinner : IDisposable
