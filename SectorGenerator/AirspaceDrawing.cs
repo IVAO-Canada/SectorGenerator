@@ -3,17 +3,19 @@
 using System.Text.Json.Nodes;
 
 using static CIFPReader.ControlledAirspace;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace SectorGenerator;
 
 internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 {
 	private readonly Airspace[] _airspaces = [.. cifpAirspaces];
-	private readonly (AirspaceClass AsClass, (float Latitude, float Longitude) From, (float Latitude, float Longitude) To)[] _linearized = [.. cifpAirspaces.SelectMany(LinearizeAirspace)];
+	private readonly (AirspaceClass AsClass, string Label, (double Latitude, double Longitude)[] Region)[] _linearRegions = [.. cifpAirspaces.SelectMany(LinearizeAirspace)];
+	private readonly (AirspaceClass AsClass, (double Latitude, double Longitude) From, (double Latitude, double Longitude) To)[] _segmented = [.. cifpAirspaces.SelectMany(SegmentAirspace)];
 
-	private static (AirspaceClass AsClass, (float Latitude, float Longitude) From, (float Latitude, float Longitude) To)[] LinearizeAirspace(Airspace asp)
+	private static (AirspaceClass AsClass, (double Latitude, double Longitude) From, (double Latitude, double Longitude) To)[] SegmentAirspace(Airspace asp)
 	{
-		List<(AirspaceClass AsClass, (float Latitude, float Longitude) From, (float Latitude, float Longitude) To)> segments = [];
+		List<(AirspaceClass AsClass, (double Latitude, double Longitude) From, (double Latitude, double Longitude) To)> segments = [];
 
 		foreach (var i in asp.Regions)
 		{
@@ -96,22 +98,115 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 		return [.. segments];
 	}
 
+	private static (AirspaceClass AsClass, string Label, (double Latitude, double Longitude)[] Region)[] LinearizeAirspace(Airspace asp)
+	{
+		List<(AirspaceClass AsClass, string Label, (double Latitude, double Longitude)[] Region)> segments = [];
+
+		foreach (var i in asp.Regions)
+		{
+			var (boundaries, asClass, altitudes) = i;
+			string floorLabel = altitudes.Floor switch {
+				AltitudeMSL msl => (msl.Feet / 100).ToString("000"),
+				null => "SFC",
+				AltitudeAGL sfc when sfc.Feet == 0 => "SFC",
+				AltitudeAGL agl when agl.GroundElevation is null => $"SFC + {agl.Feet / 100:000}",
+				AltitudeAGL conv => (conv.ToMSL().Feet / 100).ToString("000"),
+				_ => throw new NotImplementedException()
+			};
+
+			string altitudeBlock = $"{(altitudes.Ceiling?.Feet / 100)?.ToString("000") ?? "UNL"}\n{floorLabel}";
+
+			Route drawRoute = new(altitudeBlock);
+			Coordinate? first = null, arcVertex = null, arcOrigin = null;
+			bool clockwise = false;
+
+
+			foreach (var seg in boundaries)
+			{
+				Coordinate next = seg switch {
+					BoundaryArc a => a.ArcVertex,
+					BoundaryLine l => l.Vertex,
+					BoundaryEuclidean e => e.Vertex,
+					BoundaryCircle c => c.Centerpoint,
+					_ => throw new NotImplementedException()
+				};
+
+				first ??= next;
+
+				if (arcVertex is Coordinate vertex && arcOrigin is Coordinate origin)
+					drawRoute.AddArc(vertex, next, origin, clockwise);
+				else if (seg is BoundaryCircle c)
+				{
+					if (boundaries.Count() > 1)
+						throw new ArgumentException("Made an airspace region with more than just a circle!");
+
+					Coordinate top = c.Centerpoint.FixRadialDistance(new TrueCourse(000), c.Radius),
+							  left = c.Centerpoint.FixRadialDistance(new TrueCourse(270), c.Radius),
+							bottom = c.Centerpoint.FixRadialDistance(new TrueCourse(180), c.Radius),
+							 right = c.Centerpoint.FixRadialDistance(new TrueCourse(090), c.Radius);
+
+					clockwise = true;
+					drawRoute.Add(top);
+					drawRoute.AddArc(top, right, c.Centerpoint, clockwise);
+					drawRoute.AddArc(right, bottom, c.Centerpoint, clockwise);
+					drawRoute.AddArc(bottom, left, c.Centerpoint, clockwise);
+					drawRoute.AddArc(left, top, c.Centerpoint, clockwise);
+					break;
+				}
+				else
+					drawRoute.Add(next);
+
+				if (seg is BoundaryArc arc)
+				{
+					clockwise = arc.BoundaryVia.HasFlag(BoundaryViaType.ClockwiseArc);
+					arcOrigin = arc.ArcOrigin.GetCoordinate();
+					arcVertex = arc.Vertex;
+				}
+				else
+				{
+					arcOrigin = null;
+					arcVertex = null;
+				}
+
+				if (seg.BoundaryVia.HasFlag(BoundaryViaType.ReturnToOrigin))
+				{
+					if (arcVertex is Coordinate retVertex && arcOrigin is Coordinate retOrigin)
+						drawRoute.AddArc(retVertex, first.Value, retOrigin, clockwise);
+					else
+						drawRoute.Add(first.Value);
+				}
+			}
+
+			segments.Add((asClass, altitudeBlock, drawRoute.ToSegments().SelectMany(seg => new[] { seg.From, seg.To }).Distinct().ToArray()));
+		}
+
+		return [.. segments];
+	}
+
 	public string ClassBPaths => string.Join("\r\nT;Dummy;N000.00.00.000;W000.00.00.000;\r\n",
-		_linearized.Where(l => l.AsClass == AirspaceClass.B).Select(l =>
+		_segmented.Where(l => l.AsClass == AirspaceClass.B).Select(l =>
 			$"T;CLASS B;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
 		)
 	);
 
 	public string ClassCPaths => string.Join("\r\nT;Dummy;N000.00.00.000;W000.00.00.000;\r\n",
-		_linearized.Where(l => l.AsClass == AirspaceClass.C).Select(l =>
-			$"T;CLASS B;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
+		_segmented.Where(l => l.AsClass == AirspaceClass.C).Select(l =>
+			$"T;CLASS C;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
 		)
 	);
 
 	public string ClassDPaths => string.Join("\r\nT;Dummy;N000.00.00.000;W000.00.00.000;\r\n",
-		_linearized.Where(l => l.AsClass == AirspaceClass.D).Select(l =>
-			$"T;CLASS B;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
+		_segmented.Where(l => l.AsClass == AirspaceClass.D).Select(l =>
+			$"T;CLASS D;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
 		)
+	);
+
+	public string ClassBLabels => string.Join("\r\n",
+		_linearRegions.Where(r => r.AsClass == AirspaceClass.B).Select(r => {
+			var (labelLat, labelLon) = Mrva.PlaceLabel(r.Region, [.._linearRegions.Where(lr => lr.AsClass == AirspaceClass.B && lr != r).Select(lr => lr.Region)]);
+			string[] lChunks = r.Label.ReplaceLineEndings("\n").Split('\n');
+			return $"L;{lChunks[^1]}\\{lChunks[0]};{labelLat:00.0####};{labelLon:000.0####};8;";
+		})
 	);
 
 	private class Route(string altitude) : IEnumerable<Route.RouteSegment>
@@ -143,15 +238,15 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 
 		public void AddArc(Coordinate from, Coordinate to, Coordinate origin, bool clockwise)
 		{
-			float getAngle(float degrees, float degrees2)
+			double getAngle(double degrees, double degrees2)
 			{
 				if (Math.Abs(degrees - degrees2) < 0.001)
 					return 0;
 
 				if (degrees > degrees2)
 				{
-					float num = degrees2 + 360 - degrees;
-					float num2 = degrees - degrees2;
+					double num = degrees2 + 360 - degrees;
+					double num2 = degrees - degrees2;
 					if (num2 < num)
 					{
 						return -num2;
@@ -160,13 +255,13 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 					return num;
 				}
 
-				float num3 = degrees2 - degrees;
-				float num4 = degrees + 360 - degrees2;
+				double num3 = degrees2 - degrees;
+				double num4 = degrees + 360 - degrees2;
 
 				return (num4 < num3) ? -num4 : num3;
 			}
 
-			float clampAngle(float angle)
+			double clampAngle(double angle)
 			{
 				while (angle < -360)
 					angle += 360;
@@ -183,11 +278,11 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 				var startData = origin.GetBearingDistance(vertex);
 				var endData = origin.GetBearingDistance(next);
 #pragma warning restore IDE0042 // Variable declaration can be deconstructed
-				float startBearing = (float?)startData.bearing?.ToTrue()?.Degrees ?? (vertex.Latitude > origin.Latitude ? 0 : 180);
-				float endBearing = (float?)endData.bearing?.ToTrue()?.Degrees ?? (next.Latitude > origin.Latitude ? 0 : 180);
+				double startBearing = (double?)startData.bearing?.ToTrue()?.Degrees ?? (vertex.Latitude > origin.Latitude ? 0 : 180);
+				double endBearing = (double?)endData.bearing?.ToTrue()?.Degrees ?? (next.Latitude > origin.Latitude ? 0 : 180);
 
-				float guessBearing = getAngle(startBearing, endBearing);
-				float realBearing = clampAngle(guessBearing / 2 + startBearing);
+				double guessBearing = getAngle(startBearing, endBearing);
+				double realBearing = clampAngle(guessBearing / 2 + startBearing);
 
 				if ((clockwise && guessBearing < 0) || (!clockwise && guessBearing > 0))
 					realBearing = clampAngle(realBearing + 180);
@@ -219,29 +314,29 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 		public IEnumerator<RouteSegment> GetEnumerator() => ((IEnumerable<RouteSegment>)_segments).GetEnumerator();
 		System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => ((System.Collections.IEnumerable)_segments).GetEnumerator();
 
-		public IEnumerable<((float Latitude, float Longitude) From, (float Latitude, float Longitude) To)> ToSegments()
+		public IEnumerable<((double Latitude, double Longitude) From, (double Latitude, double Longitude) To)> ToSegments()
 		{
 			if (_segments.Count == 0)
 				yield break;
 
-			(float Latitude, float Longitude) prev = ((float)_segments[0].Point.Latitude, (float)_segments[0].Point.Longitude);
-			(float Latitude, float Longitude) cur;
+			(double Latitude, double Longitude) prev = ((double)_segments[0].Point.Latitude, (double)_segments[0].Point.Longitude);
+			(double Latitude, double Longitude) cur;
 
 			foreach (var seg in _segments.Skip(1))
 				switch (seg)
 				{
 					case InvisibleSegment invis:
-						prev = ((float)invis.Point.Latitude, (float)invis.Point.Longitude);
+						prev = ((double)invis.Point.Latitude, (double)invis.Point.Longitude);
 						continue;
 
 					case StraightLineSegment sls:
-						cur = ((float)sls.Point.Latitude, (float)sls.Point.Longitude);
+						cur = ((double)sls.Point.Latitude, (double)sls.Point.Longitude);
 						yield return (prev, cur);
 						prev = cur;
 						continue;
 
 					case ArcSegment arc:
-						cur = ((float)arc.Point.Latitude, (float)arc.Point.Longitude);
+						cur = ((double)arc.Point.Latitude, (double)arc.Point.Longitude);
 						yield return (prev, cur);
 						prev = cur;
 						continue;

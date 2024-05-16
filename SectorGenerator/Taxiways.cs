@@ -4,7 +4,7 @@ namespace SectorGenerator;
 
 internal class Taxiways(string airport, Osm taxiways)
 {
-	const double LABEL_SPACING = 0.15;
+	const double LABEL_SPACING = 0.25;
 
 	private readonly Osm _osm = taxiways;
 
