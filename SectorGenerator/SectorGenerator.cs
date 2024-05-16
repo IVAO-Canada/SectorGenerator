@@ -83,13 +83,21 @@ foreach (var (artcc, points) in artccBoundaries)
 
 Console.WriteLine(" Done!");
 
+static string ArtccIcao(string faa) => faa switch {
+	"ZSU" => "TJZS",
+	"ZAN" => "PAZA",
+	"ZHN" => "PHZH",
+	"ZGU" => "PGZU",
+	_ => "K" + faa
+};
+
 Console.Write("Getting ATC positions..."); await Console.Out.FlushAsync();
-var atcPositions = await GetAtcPositionsAsync(apiToken, "K", faaArtccs.Select(a => "K" + a));
+var atcPositions = await GetAtcPositionsAsync(apiToken, "K", "TJ", "PH", "PA");
 Dictionary<string, JsonObject[]> positionArtccs = atcPositions.GroupBy(p =>
 {
 	string facility = p["composePosition"]!.GetValue<string>().Split("_")[0];
 
-	if (facility.StartsWith("KZ"))
+	if (facility.StartsWith("KZ") || facility.StartsWith("TJZ") || facility.StartsWith("PHZ") || facility.StartsWith("PAZ"))
 		return facility[1..];
 	else if (TraconCenters.TryGetValue(facility, out string? artcc))
 		return artcc;
@@ -459,7 +467,7 @@ F;high.artcc
 	// MRVAs
 	Mrva mrvas = new(artccBoundaries[artcc]);
 	string mvaBlock = $@"[MVA]
-{string.Join("\r\n", mrvas.Volumes.Keys.Select(k => "F;K" + k + ".mva"))}
+{string.Join("\r\n", mrvas.Volumes.Keys.Select(k => "F;" + ArtccIcao(k) + ".mva"))}
 ";
 
 	string genLabelLine(string volume, Mrva.MrvaSegment seg)
@@ -471,7 +479,7 @@ F;high.artcc
 	foreach (var (fn, volume) in mrvas.Volumes)
 		try
 		{
-			File.WriteAllLines(Path.Combine(mvaFolder, "K" + fn + ".mva"),
+			File.WriteAllLines(Path.Combine(mvaFolder, ArtccIcao(fn) + ".mva"),
 				volume.Select(seg => string.Join("\r\n",
 					seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
 									  .Prepend(genLabelLine(fn, seg))
@@ -483,8 +491,8 @@ F;high.artcc
 	// Airports (additional).
 	File.AppendAllLines(Path.Combine(artccFolder, "airports.ap"), [..
 		mrvas.Volumes.Keys
-			.Where(k => !centerAirports[artcc].Any(ad => ad.Identifier == "K" + k)).Select(k =>
-			$"K{k};{mrvas.Volumes[k].Min(s => s.MinimumAltitude)};18000;" +
+			.Where(k => !centerAirports[artcc].Any(ad => ad.Identifier == ArtccIcao(k))).Select(k =>
+			$"{ArtccIcao(k)};{mrvas.Volumes[k].Min(s => s.MinimumAltitude)};18000;" +
 			$"{mrvas.Volumes[k].Average(s => s.BoundaryPoints.Average(bp => bp.Latitude)):00.0####};{mrvas.Volumes[k].Average(s => s.BoundaryPoints.Average(bp => bp.Longitude)):000.0####};" +
 			$"{k} TRACON;"
 		)
@@ -501,7 +509,7 @@ F;coast.geo
 	string polyfillBlock = $@"[FILLCOLOR]
 F;online.ply
 ";
-	File.WriteAllText(Path.Combine(artccFolder, "online.ply"), $@"{WebeyeAirspaceDrawing.ToPolyfillPath($"K{artcc}_CTR", "CTR", artccBoundaries[artcc])}
+	File.WriteAllText(Path.Combine(artccFolder, "online.ply"), $@"{WebeyeAirspaceDrawing.ToPolyfillPath($"{ArtccIcao(artcc)}_CTR", "CTR", artccBoundaries[artcc])}
 
 {string.Join("\r\n\r\n",
 	positionArtccs[artcc]
@@ -525,7 +533,7 @@ F;online.ply
 		.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Pos, "TWR", ap.Bounds))
 )}");
 
-	File.WriteAllText(Path.Combine(config.OutputFolder, $"K{artcc.ToUpperInvariant()}.isc"), $@"{infoBlock}
+	File.WriteAllText(Path.Combine(config.OutputFolder, $"{ArtccIcao(artcc)}.isc"), $@"{infoBlock}
 {defineBlock}
 {atcBlock}
 {airportBlock}

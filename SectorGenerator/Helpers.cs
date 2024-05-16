@@ -53,15 +53,18 @@ internal static class Helpers
 		return intersections % 2 == 1;
 	}
 
-	public static async Task<JsonObject[]> GetAtcPositionsAsync(string token, string prefix, IEnumerable<string> centers)
+	public static async Task<JsonObject[]> GetAtcPositionsAsync(string token, params string[] prefixes)
 	{
 		HttpClient http = new();
 		http.DefaultRequestHeaders.Authorization = new("Bearer", token);
 		http.BaseAddress = new(@"https://api.ivao.aero");
-		HashSet<JsonObject> positions = [..(await http.GetFromJsonAsync<JsonArray>("/v2/ATCPositions/all?loadAirport=false"))!.Cast<JsonObject>()];
-		JsonObject[] centerObjs = (await http.GetFromJsonAsync<JsonObject[]>($"/v2/positions/search?startsWith={prefix}&positionType=CTR&limit=100"))!;
+		HashSet<JsonObject> positions = [.. (await http.GetFromJsonAsync<JsonArray>("/v2/ATCPositions/all?loadAirport=false"))!.Cast<JsonObject>()];
+		List<JsonObject> centerObjs = [];
 
-		return [.. positions.Where(jo => { string pos = jo["composePosition"]!.GetValue<string>(); return pos.StartsWith(prefix); }).Concat(centerObjs)];
+		foreach (string p in prefixes)
+			centerObjs.AddRange((await http.GetFromJsonAsync<JsonObject[]>($"/v2/positions/search?startsWith={p}&positionType=CTR&limit=100"))!);
+
+		return [.. positions.Where(jo => { string pos = jo["composePosition"]!.GetValue<string>(); return prefixes.Any(p => pos.StartsWith(p)); }).Concat(centerObjs)];
 	}
 
 	public static string Dms(double value, bool longitude) =>

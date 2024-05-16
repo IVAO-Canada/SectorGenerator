@@ -22,6 +22,8 @@ ZNY,0,2000,36471600N,074355900W,ZDC
 ZNY,0,2000,36470181N,074292976W,ZDC
 ZNY,0,2000,36420900N,072395800W,ZDC";
 
+	const string ZMA_TEG_BODLO_INJECT = @"ZMA,0,3000,20250000N,073000000W,TEG";
+
 	public static async Task<(Dictionary<string, (double Latitude, double Longitude)[]> Boundaries, Dictionary<string, string[]> Neighbours, string[] Faa)> GetBoundariesAsync(string? link = null)
 	{
 		string boundaryFileContents;
@@ -41,6 +43,21 @@ ZNY,0,2000,36420900N,072395800W,ZDC";
 			List<string> boundaryLines = [..(await _http.GetStringAsync(link)).Split("\r\n")];
 			int idx = boundaryLines.IndexOf("ZNY,0,2000,36420900N,072395800W,ZDC");
 			boundaryLines[idx] = ZNY_OCEANIC_INJECT;
+
+			idx = boundaryLines.IndexOf("ZMA,0,3000,21142100N,067390200W,ZWY");
+			boundaryLines.Insert(++idx, "ZSU" + boundaryLines[idx - 1][3..^3] + "ZMA");
+
+			while (boundaryLines[++idx] != "ZMA,0,3000,19000000N,068000000W,DCS")
+				boundaryLines[idx] = "ZSU" + boundaryLines[idx][3..];
+
+			boundaryLines.Insert(idx, "ZSU" + boundaryLines[idx][3..^3] + "ZMA");
+
+			idx = boundaryLines.IndexOf("ZMA,0,3000,20250000N,071400000W,DCS") + 1;
+			while (boundaryLines[idx] != "ZMA,0,3000,20000000N,073200000W,HAV")
+				boundaryLines.RemoveAt(idx);
+
+			boundaryLines.Insert(idx, ZMA_TEG_BODLO_INJECT);
+
 			boundaryFileContents = string.Join("\r\n", boundaryLines);
 			File.WriteAllText("artccBoundaries.csv", boundaryFileContents);
 		}
