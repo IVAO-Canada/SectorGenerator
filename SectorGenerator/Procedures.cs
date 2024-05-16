@@ -16,6 +16,7 @@ internal class Procedures(CIFP cifp)
 		foreach (SID sid in _cifp.Procedures.Values.SelectMany(ps => ps.Where(p => p is SID s && s.Airport == apIcao)).Cast<SID>().OrderBy(s => s.Name))
 		{
 			bool globalHandled = false;
+			HashSet<string> foundRunways = [];
 
 			foreach (var (inboundTransition, outboundTransition) in sid.EnumerateTransitions())
 			{
@@ -24,6 +25,7 @@ internal class Procedures(CIFP cifp)
 				if (runways.EndsWith('B'))
 					runways = $"{runways[..^1]}L:{runways[..^1]}R";
 
+				foundRunways.UnionWith(runways.Split(':'));
 				NamedCoordinate[] namedPointsOnProc = [..sid.SelectRoute(inboundTransition, outboundTransition)
 					.Where(s => s.Endpoint is NamedCoordinate nc).Select(s => (NamedCoordinate)s.Endpoint!)];
 				NamedCoordinate midPoint = namedPointsOnProc.Length > 0 ? namedPointsOnProc[namedPointsOnProc.Length / 2] : new(apIcao, new());
@@ -56,7 +58,14 @@ internal class Procedures(CIFP cifp)
 
 			if (!globalHandled && rws is not null)
 			{
-				sidLines.Add($"{apIcao};{string.Join(':', rws.Select(rw => rw.Identifier))};{sid.Name};{apIcao};{apIcao};");
+				string affectedRunways =
+					foundRunways.Count > 0
+					? string.Join(':', foundRunways)
+					: rws is null
+					  ? ""
+					  : string.Join(':', rws.Select(rw => rw.Identifier));
+
+				sidLines.Add($"{apIcao};{affectedRunways};{sid.Name};{apIcao};{apIcao};");
 				var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectAllRoutes(_cifp.Fixes));
 				sidLines.AddRange(massLines);
 				fixes.UnionWith(massFixes);
@@ -77,6 +86,7 @@ internal class Procedures(CIFP cifp)
 		foreach (STAR star in _cifp.Procedures.Values.SelectMany(ps => ps.Where(p => p is STAR s && s.Airport == apIcao)).Cast<STAR>().OrderBy(s => s.Name))
 		{
 			bool globalHandled = false;
+			HashSet<string> foundRunways = [];
 
 			foreach (var (inboundTransition, outboundTransition) in star.EnumerateTransitions())
 			{
@@ -85,6 +95,7 @@ internal class Procedures(CIFP cifp)
 				if (runways.EndsWith('B'))
 					runways = $"{runways[..^1]}L:{runways[..^1]}R";
 
+				foundRunways.UnionWith(runways.Split(':'));
 				NamedCoordinate[] namedPointsOnProc = [..star.SelectRoute(inboundTransition, outboundTransition)
 					.Where(s => s.Endpoint is NamedCoordinate nc).Select(s => (NamedCoordinate)s.Endpoint!)];
 				NamedCoordinate midPoint = namedPointsOnProc.Length > 0 ? namedPointsOnProc[namedPointsOnProc.Length / 2] : new(apIcao, new());
@@ -106,7 +117,14 @@ internal class Procedures(CIFP cifp)
 
 			if (!globalHandled)
 			{
-				starLines.Add($"{apIcao};{(rws is null ? "" : string.Join(':', rws.Select(rw => rw.Identifier)))};{star.Name};{apIcao};{apIcao};");
+				string affectedRunways =
+					foundRunways.Count > 0
+					? string.Join(':', foundRunways)
+					: rws is null
+					  ? ""
+					  : string.Join(':', rws.Select(rw => rw.Identifier));
+
+				starLines.Add($"{apIcao};{affectedRunways};{star.Name};{apIcao};{apIcao};");
 				var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, star.SelectAllRoutes(_cifp.Fixes));
 				starLines.AddRange(massLines);
 				fixes.UnionWith(massFixes);
