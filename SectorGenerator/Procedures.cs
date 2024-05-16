@@ -1,7 +1,5 @@
 ﻿using CIFPReader;
 
-using NetTopologySuite.Noding.Snapround;
-
 namespace SectorGenerator;
 internal class Procedures(CIFP cifp)
 {

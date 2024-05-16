@@ -216,7 +216,7 @@ Way[] coastlineGeos = Coastline.LoadTopologies("coastline")['i'];
 
 File.WriteAllLines(
 	Path.Combine(geoFolder, "coast.geo"),
-	coastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => n.Latitude > 15 && n.Longitude < -50)).SelectMany(w =>
+	coastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => n.Latitude > 15 && n.Longitude < -50 && (n.Latitude < 49 || n.Longitude < -129.5))).SelectMany(w =>
 		w.Nodes.Zip(w.Nodes.Skip(1).Append(w.Nodes[0])).Select(np =>
 			$"{np.First.Latitude:00.0####};{np.First.Longitude:000.0####};{np.Second.Latitude:00.0####};{np.Second.Longitude:000.0####};COAST;"
 		)
@@ -308,7 +308,7 @@ Parallel.ForEach(cifp.Aerodromes.Values, airport =>
 Console.WriteLine($" Done!");
 ConcurrentDictionary<string, string> mrvaWrites = [];
 
-Parallel.ForEach(faaArtccs, async artcc =>
+foreach (var artcc in faaArtccs)
 {
 
 	Airport[] ifrAirports = [.. centerAirports[artcc].Where(ad => ad is Airport ap && ap.IFR).Cast<Airport>()];
@@ -456,8 +456,9 @@ F;high.artcc
 
 	// MRVAs
 	Mrva mrvas = new(artccBoundaries[artcc]);
+	FrozenDictionary<string, Mrva.MrvaSegment[]> mrvaVolumes = await mrvas.Volumes;
 	string mvaBlock = $@"[MVA]
-{string.Join("\r\n", mrvas.Volumes.Keys.Select(k => "F;K" + k + ".mva"))}
+{string.Join("\r\n", mrvaVolumes.Keys.Select(k => "F;K" + k + ".mva"))}
 ";
 
 	string genLabelLine(string volume, Mrva.MrvaSegment seg)
@@ -465,14 +466,14 @@ F;high.artcc
 		double lat = seg.BoundaryPoints.Average(bp => bp.Latitude),
 			   lon = seg.BoundaryPoints.Average(bp => bp.Longitude);
 
-		if (mrvas.Volumes[volume].Count(s => IsInPolygon(s.BoundaryPoints, (lat, lon))) > 1)
+		if (mrvaVolumes[volume].Count(s => IsInPolygon(s.BoundaryPoints, (lat, lon))) > 1)
 			// Ambiguous. Skip it!
 			return "";
 
 		return $"L;{seg.Name};{lat:00.0####};{lon:000.0####};{seg.MinimumAltitude / 100:000};8;";
 	}
 
-	foreach (var (fn, volume) in mrvas.Volumes)
+	foreach (var (fn, volume) in mrvaVolumes)
 		mrvaWrites[fn] = string.Join("\r\n", volume.Select(seg => string.Join("\r\n",
 				seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
 								  .Prepend(genLabelLine(fn, seg))
@@ -480,10 +481,10 @@ F;high.artcc
 
 	// Airports (additional).
 	File.AppendAllLines(Path.Combine(artccFolder, "airports.ap"), [..
-		mrvas.Volumes.Keys
+		mrvaVolumes.Keys
 			.Where(k => !centerAirports[artcc].Any(ad => ad.Identifier == "K" + k)).Select(k =>
-			$"K{k};{mrvas.Volumes[k].Min(s => s.MinimumAltitude)};18000;" +
-			$"{mrvas.Volumes[k].Average(s => s.BoundaryPoints.Average(bp => bp.Latitude)):00.0####};{mrvas.Volumes[k].Average(s => s.BoundaryPoints.Average(bp => bp.Longitude)):000.0####};" +
+			$"K{k};{mrvaVolumes[k].Min(s => s.MinimumAltitude)};18000;" +
+			$"{mrvaVolumes[k].Average(s => s.BoundaryPoints.Average(bp => bp.Latitude)):00.0####};{mrvaVolumes[k].Average(s => s.BoundaryPoints.Average(bp => bp.Longitude)):000.0####};" +
 			$"{k} TRACON;"
 		)
 	]);
@@ -538,7 +539,7 @@ F;online.ply
 {polyfillBlock}");
 
 	Console.Write($"{artcc} "); await Console.Out.FlushAsync();
-});
+}
 
 foreach (var kvp in mrvaWrites)
 	File.WriteAllText(Path.Combine(mvaFolder, "K" + kvp.Key + ".mva"), kvp.Value);

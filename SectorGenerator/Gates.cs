@@ -6,10 +6,8 @@ internal class Gates(string airport, Osm taxiways)
 
 	public string Labels => string.Join(
 		"\r\n",
-		_osm.WaysAndBoundaries().Where(w => w.Tags.ContainsKey("ref")).SelectMany(w =>
-			w.Nodes[..^1].Zip(w.Nodes[1..]).Where(ns => ns.First.DistanceTo(ns.Second) is double d && d > 0.01).Select(p => (w.Tags["ref"], p)) // Eliminate segments less than 60ft long.
-		).Select(pair => (Label: pair.Item1, Lat: (pair.p.First.Latitude + pair.p.Second.Latitude) / 2, Lon: (pair.p.First.Longitude + pair.p.Second.Longitude) / 2))
-		.Select(l => $"{l.Label};{airport};{l.Lat:00.0######};{l.Lon:000.0######};")
+		_osm.WaysAndBoundaries().Where(w => w.Tags.ContainsKey("ref")).SelectMany(Taxiways.SpacePointsOnWay)
+		.Select(l => $"{l.Label};{airport};{l.Latitude:00.0######};{l.Longitude:000.0######};")
 	);
 
 	public string Routes => string.Join(

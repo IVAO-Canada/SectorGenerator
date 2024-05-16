@@ -1,4 +1,7 @@
-﻿using System.Net.Http.Json;
+﻿using CIFPReader;
+
+using System.Diagnostics;
+using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 
 using WSleeman.Osm;
@@ -218,6 +221,168 @@ internal static class Helpers
 		osm.Ways.Values.Concat(
 			osm.Relations.Values.Select(r => r.TryFabricateBoundary()).Where(w => w is not null).Cast<Way>()
 		);
+
+
+
+	/// <summary>
+	/// Returns a <see cref="Coordinate"/> which is a given <paramref name="distance"/> along a given <paramref name="bearing"/> from <see langword="this"/>.
+	/// </summary>
+	/// <param name="bearing">The true <see cref="Bearing"/> from <see langword="this"/>.</param>
+	/// <param name="distance">The distance (in nautical miles) from <see langword="this"/>.</param>
+	[DebuggerStepThrough]
+	public static Node FixRadialDistance(this Node origin, double heading, double distance)
+	{
+		// Vincenty's formulae
+		const double a = 3443.918;
+		const double b = 3432.3716599595;
+		const double f = 1 / 298.257223563;
+		const double DEG_TO_RAD = Math.Tau / 360;
+		const double RAD_TO_DEG = 360 / Math.Tau;
+		static double square(double x) => x * x;
+		static double cos(double x) => Math.Cos(x);
+		static double sin(double x) => Math.Sin(x);
+
+		double phi1 = origin.Latitude * DEG_TO_RAD;
+		double L1 = origin.Longitude * DEG_TO_RAD;
+		double alpha1 = heading * DEG_TO_RAD;
+		double s = distance;
+
+		double U1 = Math.Atan((1 - f) * Math.Tan(phi1));
+
+		double sigma1 = Math.Atan2(Math.Tan(U1), cos(alpha1));
+		double alpha = Math.Asin(cos(U1) * sin(alpha1));
+
+		double uSquared = square(cos(alpha)) * ((square(a) - square(b)) / square(b));
+		double A = 1 + (uSquared / 16384) * (4096 + uSquared * (-768 + uSquared * (320 - 175 * uSquared)));
+		double B = (uSquared / 1024) * (256 + uSquared * (-128 + uSquared * (74 - 47 * uSquared)));
+
+		double sigma = s / b / A,
+			   oldSigma = sigma - 100;
+
+		double twoSigmaM = double.NaN;
+
+		while (Math.Abs(sigma - oldSigma) > 1.0E-9)
+		{
+			twoSigmaM = 2 * sigma1 + sigma;
+
+			double cos_2_sigmaM = cos(twoSigmaM);
+
+			double deltaSigma = B * sin(sigma) * (
+					cos_2_sigmaM + 0.25 * B * (
+						cos(sigma) * (
+							-1 + 2 * square(cos_2_sigmaM)
+						) - (B / 6) * cos_2_sigmaM * (
+							-3 + 4 * square(sin(sigma))
+						) * (
+							-3 + 4 * square(cos_2_sigmaM)
+						)
+					)
+				);
+			oldSigma = sigma;
+			sigma = s / b / A + deltaSigma;
+		}
+
+		(double sin_sigma, double cos_sigma) = Math.SinCos(sigma);
+		(double sin_alpha, double cos_alpha) = Math.SinCos(alpha);
+		(double sin_U1, double cos_U1) = Math.SinCos(U1);
+
+		double phi2 = Math.Atan2(sin_U1 * cos_sigma + cos_U1 * sin_sigma * cos(alpha1),
+								 (1 - f) * Math.Sqrt(square(sin_alpha) + square(sin_U1 * sin_sigma - cos_U1 * cos_sigma * cos(alpha1))));
+		double lambda = Math.Atan2(sin_sigma * sin(alpha1),
+								   cos_U1 * cos_sigma - sin_U1 * sin_sigma * cos(alpha1));
+
+		double C = (f / 16) * square(cos_alpha) * (4 + f * (4 - 3 * square(cos_alpha)));
+		double L = lambda - (1 - C) * f * sin_alpha * (sigma + C * sin_sigma * (cos(2 * twoSigmaM) + C * cos_sigma * (-1 + 2 * square(cos(2 * twoSigmaM)))));
+
+		double L2 = L + L1;
+
+		phi2 *= RAD_TO_DEG;
+		L2 *= RAD_TO_DEG;
+
+		return new(0, phi2, L2, System.Collections.Frozen.FrozenDictionary<string, string>.Empty);
+	}
+
+	[DebuggerStepThrough]
+	public static (double bearing, double distance) GetBearingDistance(this Node origin, Node other)
+	{
+		if (origin == other)
+			return (double.NaN, 0);
+
+		// Inverse Vincenty
+		const double a = 3443.918;
+		const double b = 3432.3716599595;
+		const double f = 1 / 298.257223563;
+		const double DEG_TO_RAD = Math.Tau / 360;
+		const double RAD_TO_DEG = 360 / Math.Tau;
+		static double square(double x) => x * x;
+		static double cos(double x) => Math.Cos(x);
+		static double sin(double x) => Math.Sin(x);
+
+		double phi1 = origin.Latitude * DEG_TO_RAD,
+			   L1 = origin.Longitude * DEG_TO_RAD,
+			   phi2 = other.Latitude * DEG_TO_RAD,
+			   L2 = other.Longitude * DEG_TO_RAD;
+
+		double U1 = Math.Atan((1 - f) * Math.Tan(phi1)),
+			   U2 = Math.Atan((1 - f) * Math.Tan(phi2)),
+			   L = L2 - L1;
+
+		double lambda = L, oldLambda;
+
+		(double sin_U1, double cos_U1) = Math.SinCos(U1);
+		(double sin_U2, double cos_U2) = Math.SinCos(U2);
+
+		double cos_2_alpha = 0, sin_sigma = 0, cos_sigma = 0, sigma = 0, cos_2_sigmaM = 0;
+
+		for (int iterCntr = 0; iterCntr < 100; ++iterCntr)
+		{
+			sin_sigma = Math.Sqrt(
+					square(
+						cos_U2 * sin(lambda)
+					) + square(
+						(cos_U1 * sin_U2) - (sin_U1 * cos_U2 * cos(lambda))
+					)
+				);
+
+			cos_sigma = sin_U1 * sin_U2 + cos_U1 * cos_U2 * cos(lambda);
+
+			sigma = Math.Atan2(sin_sigma, cos_sigma);
+
+			double sin_alpha = (cos_U1 * cos_U2 * sin(lambda)) / sin_sigma;
+
+			cos_2_alpha = 1 - square(sin_alpha);
+
+			cos_2_sigmaM = cos_sigma - (2 * sin_U1 * sin_U2 / cos_2_alpha);
+
+			double C = f / 16 * cos_2_alpha * (4 + f * (4 - 3 * cos_2_alpha));
+
+			oldLambda = lambda;
+			lambda = L + (1 - C) * f * sin_alpha * (sigma + C * sin_sigma * (cos_2_sigmaM) + C * cos_sigma * (-1 + 2 * square(cos_2_sigmaM)));
+
+			if (Math.Abs(lambda - oldLambda) > 1.0E-9)
+				break;
+		}
+
+		double u2 = cos_2_alpha * ((square(a) - square(b)) / square(b));
+
+		double A = 1 + u2 / 16384 * (4096 + u2 * (-768 + u2 * (320 - 175 * u2))),
+			   B = u2 / 1024 * (256 + u2 * (-128 + u2 * (74 - 47 * u2)));
+
+		double delta_sigma = B * sin_sigma * (cos_2_sigmaM + 1 / 4 * B * (cos_sigma * (-1 + 2 * square(cos_2_sigmaM)) - B / 6 * cos_2_sigmaM * (-3 + 4 * square(sin_sigma)) * (-3 + 4 * square(cos_2_sigmaM))));
+
+		double s = b * A * (sigma - delta_sigma);
+		double alpha_1 = Math.Atan2(
+				cos_U2 * sin(lambda),
+				cos_U1 * sin_U2 - sin_U1 * cos_U2 * cos(lambda)
+			);
+
+		if (double.IsNaN(s))
+			return (double.NaN, 0);
+		else if (double.IsNaN(alpha_1))
+			return (double.NaN, s);
+
+		return (alpha_1 * RAD_TO_DEG, s);
+	}
 }
 
 public class Spinner : IDisposable

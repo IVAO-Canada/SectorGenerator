@@ -16,21 +16,26 @@ internal partial class Mrva
 	static string? _directoryListing = null;
 	static ConcurrentDictionary<string, string> _fileCache = [];
 
-	public FrozenDictionary<string, MrvaSegment[]> Volumes { get; private set; } = FrozenDictionary<string, MrvaSegment[]>.Empty;
+	public Task<FrozenDictionary<string, MrvaSegment[]>> Volumes => Task.Run<FrozenDictionary<string, MrvaSegment[]>>(async () =>
+	{
+		while (_loadTask is null)
+			await Task.Delay(100);
+
+		if (!_loadTask.IsCompleted)
+			await _loadTask;
+
+		return _volumes;
+	});
+
+	FrozenDictionary<string, MrvaSegment[]> _volumes = FrozenDictionary<string, MrvaSegment[]>.Empty;
+	private Task? _loadTask;
 
 	public Mrva((double, double)[] boundary)
 	{
-		Task t = Task.Run(GenerateMrvas);
-
-		while (!t.IsCompleted)
-			Thread.Sleep(100);
-
-		Volumes = _mrvaBlobs
-			.Where(blob => blob.Value.Any(seg => seg.BoundaryPoints.Any(p => IsInPolygon(boundary, p))))
-			.ToFrozenDictionary();
+		_loadTask = Task.Run(() => GenerateMrvas(boundary));
 	}
 
-	private async Task GenerateMrvas()
+	private async Task GenerateMrvas((double, double)[] boundary)
 	{
 		if (_mrvaBlobs.Count > 0)
 			return;
@@ -82,6 +87,10 @@ internal partial class Mrva
 
 			_mrvaBlobs.TryAdd(nameParts, [.. segments]);
 		});
+
+		_volumes = _mrvaBlobs
+		.Where(blob => blob.Value.Any(seg => seg.BoundaryPoints.Any(p => IsInPolygon(boundary, p))))
+		.ToFrozenDictionary();
 	}
 
 	[GeneratedRegex("<a href=\"(?<url>[^\"]+FUS3[^\"]+xml)\">", RegexOptions.ExplicitCapture | RegexOptions.Compiled | RegexOptions.IgnoreCase)]
