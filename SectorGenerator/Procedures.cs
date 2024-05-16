@@ -11,7 +11,9 @@ internal class Procedures(CIFP cifp)
 	{
 		List<string> sidLines = [];
 		HashSet<NamedCoordinate> fixes = [];
-		Aerodrome aerodrome = _cifp.Aerodromes[apIcao];
+		_cifp.Runways.TryGetValue(apIcao, out var rws);
+		if (!_cifp.Aerodromes.TryGetValue(apIcao, out Aerodrome? aerodrome))
+			return ([], []);
 
 		foreach (SID sid in _cifp.Procedures.Values.SelectMany(ps => ps.Where(p => p is SID s && s.Airport == apIcao)).Cast<SID>().OrderBy(s => s.Name))
 		{
@@ -19,7 +21,7 @@ internal class Procedures(CIFP cifp)
 
 			foreach (var (inboundTransition, outboundTransition) in sid.EnumerateTransitions())
 			{
-				string runways = inboundTransition?.Replace("RW", "") ?? string.Join(':', _cifp.Runways[apIcao].Select(rw => rw.Identifier));
+				string runways = inboundTransition?.Replace("RW", "") ?? (rws is null ? "" : string.Join(':', rws.Select(rw => rw.Identifier)));
 
 				if (runways.EndsWith('B'))
 					runways = $"{runways[..^1]}L:{runways[..^1]}R";
@@ -38,7 +40,7 @@ internal class Procedures(CIFP cifp)
 
 				Coordinate startPoint;
 
-				if (_cifp.Runways[apIcao].FirstOrDefault(r => r.Identifier == runways) is Runway startRw)
+				if (rws?.FirstOrDefault(r => r.Identifier == runways) is Runway startRw)
 				{
 					startPoint =
 						_cifp.Runways[apIcao].FirstOrDefault(r => r.Identifier == startRw.OppositeIdentifier)?.Endpoint.GetCoordinate()
@@ -54,9 +56,9 @@ internal class Procedures(CIFP cifp)
 				fixes.UnionWith(transitionFixes);
 			}
 
-			if (!globalHandled)
+			if (!globalHandled && rws is not null)
 			{
-				sidLines.Add($"{apIcao};{string.Join(':', _cifp.Runways[apIcao].Select(rw => rw.Identifier))};{sid.Name};{apIcao};{apIcao};");
+				sidLines.Add($"{apIcao};{string.Join(':', rws.Select(rw => rw.Identifier))};{sid.Name};{apIcao};{apIcao};");
 				var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectAllRoutes(_cifp.Fixes));
 				sidLines.AddRange(massLines);
 				fixes.UnionWith(massFixes);
@@ -71,7 +73,8 @@ internal class Procedures(CIFP cifp)
 		List<string> starLines = [];
 		HashSet<NamedCoordinate> fixes = [];
 		_cifp.Runways.TryGetValue(apIcao, out var rws);
-		Aerodrome aerodrome = _cifp.Aerodromes[apIcao];
+		if (!_cifp.Aerodromes.TryGetValue(apIcao, out Aerodrome? aerodrome))
+			return ([], []);
 
 		foreach (STAR star in _cifp.Procedures.Values.SelectMany(ps => ps.Where(p => p is STAR s && s.Airport == apIcao)).Cast<STAR>().OrderBy(s => s.Name))
 		{
@@ -120,7 +123,8 @@ internal class Procedures(CIFP cifp)
 		List<string> iapLines = [];
 		HashSet<NamedCoordinate> fixes = [];
 		_cifp.Runways.TryGetValue(apIcao, out var rws);
-		Aerodrome aerodrome = _cifp.Aerodromes[apIcao];
+		if (!_cifp.Aerodromes.TryGetValue(apIcao, out Aerodrome? aerodrome))
+			return ([], []);
 
 		if (rws is null)
 			return ([], []);
