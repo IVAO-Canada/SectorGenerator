@@ -1,5 +1,6 @@
 ﻿using CIFPReader;
 
+using System.Text;
 using System.Text.Json.Nodes;
 
 using static CIFPReader.ControlledAirspace;
@@ -183,27 +184,88 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 		return [.. segments];
 	}
 
-	public string ClassBPaths => string.Join("\r\nT;Dummy;N000.00.00.000;W000.00.00.000;\r\n",
-		_segmented.Where(l => l.AsClass == AirspaceClass.B).Select(l =>
-			$"T;CLASS B;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
-		)
-	);
+	public string ClassBPaths
+	{
+		get
+		{
+			StringBuilder sb = new();
+			string last = "";
 
-	public string ClassCPaths => string.Join("\r\nT;Dummy;N000.00.00.000;W000.00.00.000;\r\n",
-		_segmented.Where(l => l.AsClass == AirspaceClass.C).Select(l =>
-			$"T;CLASS C;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
-		)
-	);
+			foreach (var l in _segmented.Where(l => l.AsClass == AirspaceClass.B))
+			{
+				string fromLine = $"T;CLASS B;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};",
+					   toLine = "T;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};";
 
-	public string ClassDPaths => string.Join("\r\nT;Dummy;N000.00.00.000;W000.00.00.000;\r\n",
-		_segmented.Where(l => l.AsClass == AirspaceClass.D).Select(l =>
-			$"T;CLASS D;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};\r\nT;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};"
-		)
-	);
+				if (last != fromLine)
+				{
+					sb.AppendLine("T;Dummy;N000.00.00.000;W000.00.00.000;");
+					sb.AppendLine(fromLine);
+				}
+
+				sb.AppendLine(toLine);
+				last = toLine;
+			}
+
+			return sb.ToString();
+		}
+	}
+
+	public string ClassCPaths
+	{
+		get
+		{
+			StringBuilder sb = new();
+			string last = "";
+
+			foreach (var l in _segmented.Where(l => l.AsClass == AirspaceClass.C))
+			{
+				string fromLine = $"T;CLASS C;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};",
+					   toLine = "T;CLASS C;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};";
+
+				if (last != fromLine)
+				{
+					sb.AppendLine("T;Dummy;N000.00.00.000;W000.00.00.000;");
+					sb.AppendLine(fromLine);
+				}
+
+				sb.AppendLine(toLine);
+				last = toLine;
+			}
+
+			return sb.ToString();
+		}
+	}
+
+	public string ClassDPaths
+	{
+		get
+		{
+			StringBuilder sb = new();
+			string last = "";
+
+			foreach (var l in _segmented.Where(l => l.AsClass == AirspaceClass.D))
+			{
+				string fromLine = $"T;CLASS D;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};",
+					   toLine = $"T;CLASS D;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};";
+
+				if (last != fromLine)
+				{
+					sb.AppendLine("T;Dummy;N000.00.00.000;W000.00.00.000;");
+					sb.AppendLine(fromLine);
+				}
+
+				sb.AppendLine(toLine);
+				last = toLine;
+			}
+
+			return sb.ToString();
+		}
+	}
 
 	public string ClassBLabels => string.Join("\r\n",
-		_linearRegions.Where(r => r.AsClass == AirspaceClass.B).Select(r => {
-			var (labelLat, labelLon) = Mrva.PlaceLabel(r.Region, [.._linearRegions.Where(lr => lr.AsClass == AirspaceClass.B && lr != r).Select(lr => lr.Region)]);
+		_linearRegions.Where(r => r.AsClass == AirspaceClass.B).Select(r =>
+		{
+			var (labelLat, labelLon) = Mrva.PlaceLabel(r.Region, [.. _linearRegions.Where(lr => lr.AsClass == AirspaceClass.B && lr != r).Select(lr => lr.Region)]);
 			string[] lChunks = r.Label.ReplaceLineEndings("\n").Split('\n');
 			return $"L;{lChunks[^1]}\\{lChunks[0]};{labelLat:00.0####};{labelLon:000.0####};8;";
 		})
@@ -365,7 +427,7 @@ internal static class WebeyeAirspaceDrawing
 			regionMap.Where(i => i is JsonObject).Cast<JsonObject>().Select(p => (p["lat"]!.GetValue<double>(), p["lng"]!.GetValue<double>()))
 		];
 
-		return string.Join("\r\n", points.Append(points[0]).Select(p =>$"T;{position};{p.Lat:00.0####};{p.Lon:000.0####};"));
+		return string.Join("\r\n", points.Append(points[0]).Select(p => $"T;{position};{p.Lat:00.0####};{p.Lon:000.0####};"));
 	}
 
 	public static string ToPolyfillPath(string position, string facility, JsonArray regionMap)
@@ -378,13 +440,13 @@ internal static class WebeyeAirspaceDrawing
 	}
 
 	public static string ToPolyfillPath(string position, string facility, WSleeman.Osm.Way boundary) =>
-		ToPolyfillPath(position, facility, [..boundary.Nodes.Select(n => (n.Latitude, n.Longitude))]);
+		ToPolyfillPath(position, facility, [.. boundary.Nodes.Select(n => (n.Latitude, n.Longitude))]);
 
 	public static string ToPolyfillPath(string position, string facility, (double Lat, double Lon)[] points)
 	{
 		string color = facility switch {
-			"CTR" or "FSS" => "#151A1D",	// #7B9AAF
-			"APP" or "DEP" => "#131C27",	// #70A5EC
+			"CTR" or "FSS" => "#151A1D",    // #7B9AAF
+			"APP" or "DEP" => "#131C27",    // #70A5EC
 			"TWR" => "#D54944",             // #FF5751
 			_ => ""
 		};

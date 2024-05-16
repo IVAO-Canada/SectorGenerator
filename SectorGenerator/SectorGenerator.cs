@@ -192,7 +192,7 @@ foreach (var (icao, apOsm) in apOsms)
 	List<string> gtsLabels = [];
 
 	// Aprons & Buildings
-	foreach (Way location in apOsm.GetFiltered(g => g["aeroway"] is "apron" or "terminal" && ((g["name"] ?? g["ref"]) is not null)).WaysAndBoundaries())
+	foreach (Way location in apOsm.GetFiltered(g => g["aeroway"] is "apron" or "terminal" or "hangar" && ((g["name"] ?? g["ref"]) is not null)).WaysAndBoundaries())
 	{
 		string label = (location["name"] ?? location["ref"])!;
 		gtsLabels.Add($"{label};{icao};{location.Nodes.Average(n => n.Latitude) - CHAR_WIDTH:00.0####};{location.Nodes.Average(n => n.Longitude) - label.Length * CHAR_WIDTH / 2:000.0####};");
@@ -253,7 +253,7 @@ var polygonBlocks = apOsms.AsParallel().AsUnordered().Select(input =>
 	}
 
 	// Buildings
-	foreach (Way building in apOsm.GetFiltered(g => g["aeroway"] is "terminal").WaysAndBoundaries())
+	foreach (Way building in apOsm.GetFiltered(g => g["aeroway"] is "terminal" or "hangar").WaysAndBoundaries())
 	{
 		tfls.AppendLine($"STATIC;BUILDING;1;BUILDING;");
 
