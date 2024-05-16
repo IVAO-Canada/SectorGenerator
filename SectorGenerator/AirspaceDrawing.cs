@@ -194,7 +194,7 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 			foreach (var l in _segmented.Where(l => l.AsClass == AirspaceClass.B))
 			{
 				string fromLine = $"T;CLASS B;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};",
-					   toLine = "T;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};";
+					   toLine = $"T;CLASS B;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};";
 
 				if (last != fromLine)
 				{
@@ -220,7 +220,7 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 			foreach (var l in _segmented.Where(l => l.AsClass == AirspaceClass.C))
 			{
 				string fromLine = $"T;CLASS C;{l.From.Latitude:00.0#####};{l.From.Longitude:000.0#####};",
-					   toLine = "T;CLASS C;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};";
+					   toLine = $"T;CLASS C;{l.To.Latitude:00.0#####};{l.To.Longitude:000.0#####};";
 
 				if (last != fromLine)
 				{
