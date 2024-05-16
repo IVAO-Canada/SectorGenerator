@@ -45,6 +45,7 @@ ZNY,0,2000,36420900N,072395800W,ZDC";
 			boundaryLines[idx] = ZNY_OCEANIC_INJECT;
 
 			idx = boundaryLines.IndexOf("ZMA,0,3000,21142100N,067390200W,ZWY");
+			boundaryLines[idx] = boundaryLines[idx][..^3] + "ZSU";
 			boundaryLines.Insert(++idx, "ZSU" + boundaryLines[idx - 1][3..^3] + "ZMA");
 
 			while (boundaryLines[++idx] != "ZMA,0,3000,19000000N,068000000W,DCS")

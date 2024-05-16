@@ -106,8 +106,12 @@ Dictionary<string, JsonObject[]> positionArtccs = atcPositions.GroupBy(p =>
 		if ((p["airportId"] ?? p["centerId"])?.GetValue<string>() is string pos && centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == pos)))
 			return centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == pos)).Key;
 
-		Console.WriteLine(facility);
-		return "KZZZ";
+		return facility[..2] switch {
+			"TJ" => "ZSU",
+			"PH" => "ZHN",
+			"PA" => "ZAN",
+			_ => "ZZZ"
+		};
 	}
 	else
 		return centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == facility)).Key;
