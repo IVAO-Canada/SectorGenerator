@@ -1,0 +1,16 @@
+﻿@page "/contentscript.html"
+@inherits BasePage
+@inject IJSRuntime JSRuntime
+
+<h1>Enter Route Definition</h1>
+<textarea id="route-definition-editor" @bind="definition" @bind:event="onchange"></textarea>
+<button @onclick="ClickAsync">Send</button>
+
+@code {
+	string definition = "KLAX KMIA";
+
+	async Task ClickAsync()
+	{
+		await JSRuntime.InvokeVoidAsync("window.postMessage", $"/{definition}");
+	}
+}

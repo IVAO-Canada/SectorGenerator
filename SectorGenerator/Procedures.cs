@@ -133,6 +133,12 @@ internal class Procedures(CIFP cifp)
 
 		foreach (Approach iap in _cifp.Procedures.Values.SelectMany(ps => ps.Where(p => p is Approach a && a.Airport == apIcao)).Cast<Approach>().OrderBy(s => s.Name))
 		{
+			if (iap.Name.Length < 3)
+			{
+				Console.Error.WriteLine($"Weirdly short procedure {iap.Name} at {iap.Airport}. Skipped.");
+				continue;
+			}
+
 			string iapName =
 				iap.Name[..3] switch {
 					"VOR" or "NDB" or "GPS" => iap.Name,
@@ -154,10 +160,8 @@ internal class Procedures(CIFP cifp)
 
 			string runways = new([.. iapName.SkipWhile(char.IsLetter).TakeWhile(c => char.IsDigit(c) || "LCRBA".Contains(c))]);
 
-			if (runways.EndsWith('B'))
+			if (runways.EndsWith('B') && runways.Any(char.IsDigit))
 				runways = $"{runways[..^1]}L:{runways[..^1]}R";
-			else if (char.IsLetter(runways[^1]) && !"LCR".Contains(runways[^1]))
-				System.Diagnostics.Debugger.Break();
 
 			ICoordinate midPoint = (ICoordinate)(iap.SelectRoute(null, null).FirstOrDefault(i => i.Endpoint is ICoordinate)?.Endpoint ?? aerodrome.Location);
 

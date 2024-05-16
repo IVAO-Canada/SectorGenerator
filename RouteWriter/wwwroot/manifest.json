@@ -1,0 +1,36 @@
+﻿{
+  "manifest_version": 3,
+  "name": "RouteWriter Extension",
+  "description": "Shows routes for US sectorfiles in Skyvector",
+  "version": "0.1",
+  "background": {
+    "service_worker": "BackgroundWorker.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
+  "content_scripts": [
+		{
+			"matches": ["https://skyvector.com/*"],
+			"js": ["content/Blazor.BrowserExtension/ContentScript.js"]
+		}
+	],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "framework/*",
+        "content/*"
+      ],
+      "matches": [ "<all_urls>" ]
+    },
+    {
+      "resources": [
+        "app.js",
+        "contentscript.html",
+        "css/*"
+      ],
+			"matches": [ "https://skyvector.com/*" ]
+    }
+  ]
+}
