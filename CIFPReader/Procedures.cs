@@ -227,11 +227,18 @@ public class SID : Procedure
 	public override IEnumerable<Instruction?> SelectAllRoutes(Dictionary<string, HashSet<ICoordinate>> fixes)
 	{
 		Instruction? lastReturned = null;
-		foreach (var inboundTransition in runwayTransitions)
+
+		foreach (var inboundTransition in runwayTransitions.SelectMany(rt => 
+			(rt.Key.StartsWith("RW") && rt.Key.EndsWith('B') ? (string[])[ rt.Key[..^1] + "L", rt.Key[..^1] + "R" ] : [ rt.Key ])
+				.Select(k => new KeyValuePair<string, Instruction[]>(k, rt.Value))
+		))
 		{
-			string refFix = (inboundTransition.Key.StartsWith("RW") && inboundTransition.Key.Length >= 4 && inboundTransition.Key[2..4].All(char.IsDigit)) ? (inboundTransition.Key.EndsWith('B') ? Airport! : (Airport + "/" + inboundTransition.Key[2..])) : (Airport + "/" + inboundTransition.Key);
+			string refFix = (inboundTransition.Key.StartsWith("RW") && inboundTransition.Key.Length >= 4 && inboundTransition.Key[2..4].All(char.IsDigit)) ? (Airport + "/" + inboundTransition.Key[2..]) : (Airport + "/" + inboundTransition.Key);
 			lastReturned = new(PathTermination.UntilCrossing | PathTermination.Direct, new UnresolvedWaypoint(refFix).Resolve(fixes, Airport is null ? null : new UnresolvedWaypoint(Airport)), null, null, SpeedRestriction.Unrestricted, AltitudeRestriction.Unrestricted);
 			yield return lastReturned;
+
+			if (!(char.IsDigit(refFix[^1]) || "LCR".Contains(refFix[^1])))
+				System.Diagnostics.Debugger.Break();
 
 			foreach (var instr in inboundTransition.Value)
 			{

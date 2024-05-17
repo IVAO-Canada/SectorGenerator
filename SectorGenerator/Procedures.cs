@@ -38,22 +38,37 @@ internal class Procedures(CIFP cifp)
 					globalHandled = true;
 				}
 
-				Coordinate startPoint;
+				HashSet<string> sharedPoints = [];
 
-				if (rws?.FirstOrDefault(r => r.Identifier == runways) is Runway startRw)
+				foreach (string runway in runways.Split(':'))
 				{
-					startPoint =
-						_cifp.Runways[apIcao].FirstOrDefault(r => r.Identifier == startRw.OppositeIdentifier)?.Endpoint.GetCoordinate()
-						?? startRw.Endpoint.GetCoordinate();
-					string rwEnd = $"{apIcao}/RW{(startRw.OppositeIdentifier.TakeWhile(char.IsDigit).Count() < 2 ? "0" : "")}{startRw.OppositeIdentifier}";
-					sidLines.Add($"{rwEnd};{rwEnd};");
-				}
-				else
-					startPoint = aerodrome.Location.GetCoordinate();
+					Coordinate startPoint;
 
-				var (transitionLines, transitionFixes) = Run(startPoint, aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectRoute(inboundTransition, outboundTransition));
-				sidLines.AddRange(transitionLines);
-				fixes.UnionWith(transitionFixes);
+					if (rws?.FirstOrDefault(r => r.Identifier == runway) is Runway startRw)
+					{
+						startPoint =
+							_cifp.Runways[apIcao].FirstOrDefault(r => r.Identifier == startRw.OppositeIdentifier)?.Endpoint.GetCoordinate()
+							?? startRw.Endpoint.GetCoordinate();
+						string rwEnd = $"{apIcao}/RW{(startRw.OppositeIdentifier.TakeWhile(char.IsDigit).Count() < 2 ? "0" : "")}{startRw.OppositeIdentifier}";
+						sidLines.Add($"{rwEnd};{rwEnd};<br>;");
+					}
+					else
+						startPoint = aerodrome.Location.GetCoordinate();
+
+					var (transitionLines, transitionFixes) = Run(startPoint, aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectRoute(inboundTransition, outboundTransition));
+					bool killNext = false;
+
+					sidLines.AddRange(transitionLines.TakeWhile(l =>
+					{
+						if (killNext)
+							return false;
+
+						string[] segments = l.Split(';');
+						killNext = segments.Length >= 2 && segments[0] == segments[1] && !sharedPoints.Add(segments[0]);
+						return true;
+					}));
+					fixes.UnionWith(transitionFixes);
+				}
 			}
 
 			if (!globalHandled && rws is not null)
@@ -66,7 +81,7 @@ internal class Procedures(CIFP cifp)
 					  : string.Join(':', rws.Select(rw => rw.Identifier));
 
 				sidLines.Add($"{apIcao};{affectedRunways};{sid.Name};{apIcao};{apIcao};");
-				var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectAllRoutes(_cifp.Fixes));
+				var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectAllRoutes(_cifp.Fixes), cut: true);
 				sidLines.AddRange(massLines);
 				fixes.UnionWith(massFixes);
 			}
@@ -195,7 +210,7 @@ internal class Procedures(CIFP cifp)
 	}
 
 	private static string lastLine = "";
-	private static (string[] Lines, NamedCoordinate[] Fixes) Run(Coordinate startPoint, int elevation, decimal magVar, string airportIcao, IEnumerable<Procedure.Instruction?> instructions)
+	private static (string[] Lines, NamedCoordinate[] Fixes) Run(Coordinate startPoint, int elevation, decimal magVar, string airportIcao, IEnumerable<Procedure.Instruction?> instructions, bool cut = false)
 	{
 		List<string> lines = [];
 		HashSet<NamedCoordinate> fixes = [];
@@ -204,7 +219,6 @@ internal class Procedures(CIFP cifp)
 
 		void addLine(string line)
 		{
-
 			if (line == lastLine)
 				return;
 
@@ -212,14 +226,22 @@ internal class Procedures(CIFP cifp)
 			lastLine = line;
 		}
 
+		bool isCut = false;
 		foreach (var instruction in instructions)
 		{
+			if (isCut && instruction is not null)
+				continue;
+
 			if (instruction is null)
 			{
+				isCut = false;
 				breakPending = true;
 				state = null;
 				continue;
 			}
+
+			if (cut && instruction.Endpoint is NamedCoordinate iepnc && fixes.Contains(iepnc))
+				isCut = true;
 
 			var (newCoords, newState) = Step(startPoint, elevation, magVar, airportIcao, instruction, state);
 			state = newState;
@@ -238,14 +260,14 @@ internal class Procedures(CIFP cifp)
 					addLine($"{c.Latitude:00.0####};{c.Longitude:000.0####};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
 				else throw new NotImplementedException();
 
-				if (breakPending)
+				if (breakPending && lines.Count > 0)
 				{
 					breakPending = false;
 
 					if (lines[^1].Count(c => c == ';') <= 2)
 						lines[^1] += "<br>;";
 					else
-						lines.Insert(lines.Count - 1, string.Join(';', lines[^1].Split(';')[..2]) + ";<br>;");
+						addLine(string.Join(';', lines[^1].Split(';')[..2]) + ";<br>;");
 
 					lastLine = lines[^1];
 				}
@@ -350,7 +372,7 @@ internal class Procedures(CIFP cifp)
 			for (Course angle = startAngle; up ? angle.Degrees < endAngle.Degrees : angle.Degrees > endAngle.Degrees; angle += up ? 15m : -15m)
 				intermediatePoints.Add(arcCenter.FixRadialDistance(angle, arc.Radius));
 
-			return ([..procPrev(), ..intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted))], null);
+			return ([.. procPrev(), .. intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted))], null);
 		}
 		else
 			return ([.. procPrev()], instruction);

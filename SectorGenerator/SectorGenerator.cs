@@ -1,4 +1,5 @@
-﻿using CIFPReader;
+﻿//#define OSM
+using CIFPReader;
 
 using SectorGenerator;
 
@@ -8,7 +9,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+#if OSM
 using WSleeman.Osm;
+#endif
 
 using static SectorGenerator.Helpers;
 
@@ -32,16 +35,22 @@ Console.WriteLine($" Done! (Refresh: {apiRefreshToken})");
 // Long loading threads in parallel!
 Console.Write("Downloading ARTCC boundaries, CIFPs, and OSM data..."); await Console.Out.FlushAsync();
 CIFP? cifp = null;
+#if OSM
 Osm? osm = null;
+#endif
 Dictionary<string, (double Latitude, double Longitude)[]> artccBoundaries = [];
 Dictionary<string, string[]> artccNeighbours = [];
 string[] faaArtccs = [];
 await Task.WhenAll([
 	Task.Run(async () => (artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath)),
-	Task.Run(() => cifp = CIFP.Load()),
+	Task.Run(() => cifp = CIFP.Load())
+#if OSM
+,
 	Task.Run(async () => osm = await Osm.Load())
+#endif
 ]);
 
+#if OSM
 // Keep the compiler happy with fallback checks.
 if (cifp is null || osm is null)
 {
@@ -49,6 +58,7 @@ if (cifp is null || osm is null)
 	return;
 }
 Console.WriteLine(" Done!");
+#endif
 
 // Generate copy-pasteable Webeye shapes for each of the ARTCCs.
 (string Artcc, string Shape)[] artccWebeyeShapes = [..
@@ -123,12 +133,16 @@ Console.WriteLine(" Done!");
 if (!Directory.Exists(config.OutputFolder))
 	Directory.CreateDirectory(config.OutputFolder);
 
+#if OSM
 foreach (string existingIsc in Directory.EnumerateFiles(config.OutputFolder, "*.isc"))
 	File.Delete(existingIsc);
+#endif
 
 string includeFolder = Path.Combine(config.OutputFolder, "Include");
+#if OSM
 if (Directory.Exists(includeFolder))
 	Directory.Delete(includeFolder, true);
+#endif
 
 Directory.CreateDirectory(includeFolder);
 includeFolder = Path.Combine(includeFolder, "US");
@@ -156,6 +170,7 @@ File.WriteAllLines(Path.Combine(navaidFolder, "vor.vor"), [..cifp.Navaids.Select
 string navaidBlock = "[NDB]\r\nF;ndb.ndb\r\n\r\n[VOR]\r\nF;vor.vor\r\n";
 Console.WriteLine(" Done!");
 
+#if OSM
 Console.Write("Partitioning airport data..."); await Console.Out.FlushAsync();
 Osm apBoundaries = osm.GetFiltered(g =>
 	g is Way or Relation &&
@@ -291,6 +306,7 @@ foreach (var (icao, tfl) in polygonBlocks.Where(i => i.Item2.Length > 0))
 	File.WriteAllText(Path.Combine(polygonFolder, icao + ".tfl"), tfl);
 
 Console.WriteLine($" Done!");
+#endif
 Console.Write("Generating procedures..."); await Console.Out.FlushAsync();
 ConcurrentDictionary<string, HashSet<NamedCoordinate>> apProcFixes = [];
 Procedures procs = new(cifp);
@@ -318,6 +334,7 @@ Parallel.ForEach(cifp.Aerodromes.Values, airport =>
 });
 
 Console.WriteLine($" Done!");
+#if OSM
 Console.Write("Generating MRVAs..."); await Console.Out.FlushAsync();
 // Dummy loader to force all the downloading.
 _ = new Mrva([]);
@@ -553,5 +570,6 @@ F;online.ply
 
 	Console.Write($"{artcc} "); await Console.Out.FlushAsync();
 });
+#endif
 
 Console.WriteLine(" All Done!");
