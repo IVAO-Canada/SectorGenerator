@@ -1,5 +1,7 @@
 ﻿using CIFPReader;
 
+using System.Linq;
+
 namespace SectorGenerator;
 internal class Procedures(CIFP cifp)
 {
@@ -209,13 +211,13 @@ internal class Procedures(CIFP cifp)
 		return ([.. iapLines], [.. fixes]);
 	}
 
-	private static string lastLine = "";
 	private static (string[] Lines, NamedCoordinate[] Fixes) Run(Coordinate startPoint, int elevation, decimal magVar, string airportIcao, IEnumerable<Procedure.Instruction?> instructions, bool cut = false)
 	{
 		List<string> lines = [];
 		HashSet<NamedCoordinate> fixes = [];
 		Procedure.Instruction? state = null;
 		bool breakPending = false;
+		string lastLine = "";
 
 		void addLine(string line)
 		{
@@ -226,7 +228,7 @@ internal class Procedures(CIFP cifp)
 			lastLine = line;
 		}
 
-		bool isCut = false;
+		bool isCut = false, blockCut = false;
 		foreach (var instruction in instructions)
 		{
 			if (isCut && instruction is not null)
@@ -240,8 +242,13 @@ internal class Procedures(CIFP cifp)
 				continue;
 			}
 
-			if (cut && instruction.Endpoint is NamedCoordinate iepnc && fixes.Contains(iepnc))
-				isCut = true;
+			if (cut && !blockCut && instruction.Endpoint is NamedCoordinate iepnc && fixes.Contains(iepnc))
+			{
+				if (breakPending)
+					blockCut = true;
+				else
+					isCut = true;
+			}
 
 			var (newCoords, newState) = Step(startPoint, elevation, magVar, airportIcao, instruction, state);
 			state = newState;
