@@ -275,6 +275,9 @@ internal class Procedures(CIFP cifp)
 
 			startPoint = newCoords[^1].Endpoint.GetCoordinate();
 			breakPending |= instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilTerminated);
+
+			if (breakPending)
+				isCut = false;
 		}
 
 		return ([.. lines], [.. fixes]);
