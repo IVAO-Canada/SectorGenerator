@@ -15,7 +15,6 @@ internal class Procedures(CIFP cifp)
 
 		foreach (SID sid in _cifp.Procedures.Values.SelectMany(ps => ps.Where(p => p is SID s && s.Airport == apIcao)).Cast<SID>().OrderBy(s => s.Name))
 		{
-			bool globalHandled = false;
 			HashSet<string> foundRunways = [];
 
 			foreach (var (inboundTransition, outboundTransition) in sid.EnumerateTransitions())
@@ -33,10 +32,7 @@ internal class Procedures(CIFP cifp)
 				if (outboundTransition is string ot)
 					sidLines.Add($"{apIcao};{runways};{sid.Name}.{ot};{midPoint.Name};{midPoint.Name};1;");
 				else
-				{
-					sidLines.Add($"{apIcao};{runways};{sid.Name};{midPoint.Name};{midPoint.Name};");
-					globalHandled = true;
-				}
+					continue;
 
 				HashSet<string> sharedPoints = [];
 
@@ -71,20 +67,18 @@ internal class Procedures(CIFP cifp)
 				}
 			}
 
-			if (!globalHandled && rws is not null)
-			{
-				string affectedRunways =
-					foundRunways.Count > 0
-					? string.Join(':', foundRunways)
-					: rws is null
-					  ? ""
-					  : string.Join(':', rws.Select(rw => rw.Identifier));
+			// Composite procedure
+			string affectedRunways =
+				foundRunways.Count > 0
+				? string.Join(':', foundRunways)
+				: rws is null
+				  ? ""
+				  : string.Join(':', rws.Select(rw => rw.Identifier));
 
-				sidLines.Add($"{apIcao};{affectedRunways};{sid.Name};{apIcao};{apIcao};");
-				var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectAllRoutes(_cifp.Fixes));
-				sidLines.AddRange(massLines);
-				fixes.UnionWith(massFixes);
-			}
+			sidLines.Add($"{apIcao};{affectedRunways};{sid.Name};{apIcao};{apIcao};");
+			var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectAllRoutes(_cifp.Fixes));
+			sidLines.AddRange(massLines);
+			fixes.UnionWith(massFixes);
 		}
 
 		return ([.. sidLines], [.. fixes]);
@@ -100,7 +94,6 @@ internal class Procedures(CIFP cifp)
 
 		foreach (STAR star in _cifp.Procedures.Values.SelectMany(ps => ps.Where(p => p is STAR s && s.Airport == apIcao)).Cast<STAR>().OrderBy(s => s.Name))
 		{
-			bool globalHandled = false;
 			HashSet<string> foundRunways = [];
 
 			foreach (var (inboundTransition, outboundTransition) in star.EnumerateTransitions())
@@ -118,10 +111,7 @@ internal class Procedures(CIFP cifp)
 				if (inboundTransition is string it)
 					starLines.Add($"{apIcao};{runways};{it}.{star.Name};{midPoint.Name};{midPoint.Name};1;");
 				else
-				{
-					starLines.Add($"{apIcao};{runways};{star.Name};{midPoint.Name};{midPoint.Name};");
-					globalHandled = true;
-				}
+					continue;
 
 				Coordinate startPoint = _cifp.Aerodromes[apIcao].Location.GetCoordinate();
 
@@ -130,20 +120,17 @@ internal class Procedures(CIFP cifp)
 				fixes.UnionWith(transitionFixes);
 			}
 
-			if (!globalHandled)
-			{
-				string affectedRunways =
-					foundRunways.Count > 0
-					? string.Join(':', foundRunways)
-					: rws is null
-					  ? ""
-					  : string.Join(':', rws.Select(rw => rw.Identifier));
+			string affectedRunways =
+				foundRunways.Count > 0
+				? string.Join(':', foundRunways)
+				: rws is null
+				  ? ""
+				  : string.Join(':', rws.Select(rw => rw.Identifier));
 
-				starLines.Add($"{apIcao};{affectedRunways};{star.Name};{apIcao};{apIcao};");
-				var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, star.SelectAllRoutes(_cifp.Fixes));
-				starLines.AddRange(massLines);
-				fixes.UnionWith(massFixes);
-			}
+			starLines.Add($"{apIcao};{affectedRunways};{star.Name};{apIcao};{apIcao};");
+			var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, star.SelectAllRoutes(_cifp.Fixes));
+			starLines.AddRange(massLines);
+			fixes.UnionWith(massFixes);
 		}
 
 		return ([.. starLines], [.. fixes]);
@@ -367,6 +354,13 @@ internal class Procedures(CIFP cifp)
 
 			return ([.. procPrev(), .. intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted))], null);
 		}
+		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilRadial) && instruction.Endpoint is Radial radial && instruction.Via is Course c)
+		{
+			if (radial.GetIntersectionPoint(startingPoint, c)?.GetCoordinate() is Coordinate coord)
+				return ([.. procPrev(), (coord, AltitudeRestriction.Unrestricted)], instruction);
+			else
+				return ([.. procPrev()], instruction);
+		}
 		else
 			return ([.. procPrev()], instruction);
 	}
@@ -418,7 +412,7 @@ internal class Procedures(CIFP cifp)
 		List<string> lines = [];
 		while (edges.Count > 0)
 		{
-			string from = edges.First(e => !edges.Any(e1 => e1.To == e.From)).From;
+			string from = edges.FirstOrDefault(e => !edges.Any(e1 => e1.To == e.From)).From ?? edges.First().From;
 
 			if (from.Count(c => c == ';') < 3)
 				lines.Add(from + "<br>;");

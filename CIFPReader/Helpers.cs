@@ -100,7 +100,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		List<ApproachLine> iapSteps = [];
 		List<AirwayFixLine> awLines = [];
 
-		RecordLine[] rls = [..cifpFileLines.SkipWhile(l => l.StartsWith("HDR")).AsParallel().AsOrdered().Select(RecordLine.Parse).Where(rl => rl is not null).Cast<RecordLine>()];
+		RecordLine[] rls = [.. cifpFileLines.SkipWhile(l => l.StartsWith("HDR")).AsParallel().AsOrdered().Select(RecordLine.Parse).Where(rl => rl is not null).Cast<RecordLine>()];
 
 		for (int lineIndex = 0; lineIndex < rls.Length; ++lineIndex)
 		{
@@ -470,6 +470,32 @@ public record Radial(Navaid Station, MagneticCourse Bearing) : IProcedureEndpoin
 		}
 		else
 			throw new NotImplementedException();
+	}
+
+	public Coordinate? GetIntersectionPoint(ICoordinate otherPoint, Course otherBearing)
+	{
+		if (Bearing.ToTrue().Degrees == otherBearing.ToTrue().Degrees)
+			return null;
+
+		Coordinate here = Station.Position.GetCoordinate(),
+				   there = otherPoint.GetCoordinate(),
+				   checkPoint = there;
+
+		TrueCourse radial = Bearing.ToTrue(),
+				   otherRadial = otherBearing.ToTrue();
+
+		decimal distance = here.DistanceTo(there);
+		bool startPositive = here.GetBearingDistance(there).bearing!.ToTrue().Degrees - radial.Degrees >= 0;
+
+		while (Math.Abs(here.GetBearingDistance(checkPoint).bearing!.ToTrue().Degrees - radial.Degrees) > 0.5m)
+		{
+			decimal error = here.GetBearingDistance(checkPoint).bearing!.ToTrue().Degrees - radial.Degrees;
+			distance += Math.Abs(error) / 10 * (startPositive ^ (error >= 0) ? -1 : 1);
+
+			checkPoint = there.FixRadialDistance(otherRadial, distance);
+		}
+
+		return checkPoint;
 	}
 }
 
