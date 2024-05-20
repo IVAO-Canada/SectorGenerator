@@ -354,7 +354,7 @@ internal class Procedures(CIFP cifp)
 			for (Course angle = startAngle; up ? angle.Degrees < endAngle.Degrees : angle.Degrees > endAngle.Degrees; angle += up ? 15m : -15m)
 				intermediatePoints.Add(arcCenter.FixRadialDistance(angle, arc.Radius));
 
-			return ([.. procPrev(), .. intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted))], null);
+			return ([.. procPrev(), .. intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted)), (arcEnd, instruction.Altitude)], null);
 		}
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilRadial) && instruction.Endpoint is Radial radial && instruction.Via is Course c)
 		{
