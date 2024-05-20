@@ -279,7 +279,7 @@ var polygonBlocks = apOsms.AsParallel().AsUnordered().Select(input =>
 	// Taxiways
 	Taxiways taxiways = new(
 		icao,
-		apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "taxiway" or "taxilane")
+		apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "taxiway")
 	);
 	foreach (Way txw in taxiways.BoundingBoxes)
 	{

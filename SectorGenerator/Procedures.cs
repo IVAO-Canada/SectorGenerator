@@ -1,7 +1,5 @@
 ﻿using CIFPReader;
 
-using System.Linq;
-
 namespace SectorGenerator;
 internal class Procedures(CIFP cifp)
 {
@@ -203,7 +201,7 @@ internal class Procedures(CIFP cifp)
 			else
 				iapLines.Add($"{apIcao};{runways};{iapName};{midPoint.Latitude:00.0####};{midPoint.Longitude:000.0####};3;");
 
-			var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, iap.SelectAllRoutes(_cifp.Fixes));
+			var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, iap.SelectAllRoutes(_cifp.Fixes));
 			iapLines.AddRange(massLines);
 			fixes.UnionWith(massFixes);
 		}
