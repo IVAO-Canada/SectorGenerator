@@ -1,5 +1,7 @@
 ﻿using CIFPReader;
 
+using System.Runtime.InteropServices;
+
 namespace SectorGenerator;
 internal class Procedures(CIFP cifp)
 {
@@ -361,7 +363,14 @@ internal class Procedures(CIFP cifp)
 			else
 				return ([.. procPrev()], instruction);
 		}
+		else if (instruction.Endpoint is ICoordinate ep)
+			return ([.. procPrev(), (ep, instruction.Altitude)], null);
+		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilDistance) && instruction.Endpoint is Distance dist && dist.Point is not null && instruction.Via is Course crs)
+			return ([.. procPrev(), (dist.Point.GetCoordinate().FixRadialDistance(crs, dist.NMI), AltitudeRestriction.Unrestricted)], null);
+		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilIntercept))
+			return ([.. procPrev()], instruction);
 		else
+			// Hmm... Not sure... Probably need to implement something if this happens.
 			return ([.. procPrev()], instruction);
 	}
 
