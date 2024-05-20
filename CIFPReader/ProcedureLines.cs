@@ -130,7 +130,6 @@ public abstract record ProcedureLine(string Client, string Header,
 
 			"PI" => PathTermination.UntilIntercept | PathTermination.ProcedureTurn,
 
-
 			/* ******************************************** *
 			 * IF: Initial Fix								*
 			 * TF: Track to a Fix							*

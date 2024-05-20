@@ -83,7 +83,7 @@ internal class Procedures(CIFP cifp)
 					  : string.Join(':', rws.Select(rw => rw.Identifier));
 
 				sidLines.Add($"{apIcao};{affectedRunways};{sid.Name};{apIcao};{apIcao};");
-				var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectAllRoutes(_cifp.Fixes), cut: true);
+				var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectAllRoutes(_cifp.Fixes));
 				sidLines.AddRange(massLines);
 				fixes.UnionWith(massFixes);
 			}
@@ -142,7 +142,7 @@ internal class Procedures(CIFP cifp)
 					  : string.Join(':', rws.Select(rw => rw.Identifier));
 
 				starLines.Add($"{apIcao};{affectedRunways};{star.Name};{apIcao};{apIcao};");
-				var (massLines, massFixes) = Run(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, star.SelectAllRoutes(_cifp.Fixes));
+				var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, star.SelectAllRoutes(_cifp.Fixes));
 				starLines.AddRange(massLines);
 				fixes.UnionWith(massFixes);
 			}
@@ -211,7 +211,7 @@ internal class Procedures(CIFP cifp)
 		return ([.. iapLines], [.. fixes]);
 	}
 
-	private static (string[] Lines, NamedCoordinate[] Fixes) Run(Coordinate startPoint, int elevation, decimal magVar, string airportIcao, IEnumerable<Procedure.Instruction?> instructions, bool cut = false)
+	private static (string[] Lines, NamedCoordinate[] Fixes) Run(Coordinate startPoint, int elevation, decimal magVar, string airportIcao, IEnumerable<Procedure.Instruction?> instructions)
 	{
 		List<string> lines = [];
 		HashSet<NamedCoordinate> fixes = [];
@@ -228,26 +228,14 @@ internal class Procedures(CIFP cifp)
 			lastLine = line;
 		}
 
-		bool isCut = false, blockCut = false;
 		foreach (var instruction in instructions)
 		{
-			if (isCut && instruction is not null)
-				continue;
 
 			if (instruction is null)
 			{
-				isCut = false;
 				breakPending = true;
 				state = null;
 				continue;
-			}
-
-			if (cut && !blockCut && instruction.Endpoint is NamedCoordinate iepnc && fixes.Contains(iepnc))
-			{
-				if (breakPending)
-					blockCut = true;
-				else
-					isCut = true;
 			}
 
 			var (newCoords, newState) = Step(startPoint, elevation, magVar, airportIcao, instruction, state);
@@ -282,9 +270,6 @@ internal class Procedures(CIFP cifp)
 
 			startPoint = newCoords[^1].Endpoint.GetCoordinate();
 			breakPending |= instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilTerminated);
-
-			if (breakPending)
-				isCut = false;
 		}
 
 		return ([.. lines], [.. fixes]);
@@ -386,5 +371,73 @@ internal class Procedures(CIFP cifp)
 		}
 		else
 			return ([.. procPrev()], instruction);
+	}
+
+	private static (string[] Lines, NamedCoordinate[] Fixes) GraphRender(Coordinate startPoint, int elevation, decimal magVar, string airportIcao, IEnumerable<Procedure.Instruction?> instructions)
+	{
+		HashSet<NamedCoordinate> fixes = [];
+		Procedure.Instruction? state = null;
+		string? lastPoint = null;
+		HashSet<(string From, string To)> edges = [];
+
+		foreach (var instruction in instructions)
+		{
+			if (instruction is null)
+			{
+				lastPoint = null;
+				continue;
+			}
+
+			var (newCoords, newState) = Step(startPoint, elevation, magVar, airportIcao, instruction, state);
+			state = newState;
+
+			void addEdge(string nextPoint)
+			{
+				if (!(lastPoint is null || lastPoint == nextPoint || edges.Contains((nextPoint, lastPoint))))
+					edges.Add((lastPoint, nextPoint));
+
+				lastPoint = nextPoint;
+			}
+
+			if (newCoords.Length == 0)
+				continue;
+
+			foreach ((ICoordinate epc, AltitudeRestriction ar) in newCoords)
+				if (epc is NamedCoordinate nc)
+				{
+					fixes.Add(nc);
+					addEdge($"{nc.Name};{nc.Name};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
+				}
+				else if (epc is Coordinate c)
+					addEdge($"{c.Latitude:00.0####};{c.Longitude:000.0####};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
+				else throw new NotImplementedException();
+
+			startPoint = newCoords[^1].Endpoint.GetCoordinate();
+			if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilTerminated))
+				lastPoint = null;
+		}
+
+		List<string> lines = [];
+		while (edges.Count > 0)
+		{
+			string from = edges.First(e => !edges.Any(e1 => e1.To == e.From)).From;
+
+			if (from.Count(c => c == ';') < 3)
+				lines.Add(from + "<br>;");
+			else
+			{
+				lines.Add(from[..(from.TrimEnd()[..^1].LastIndexOf(';'))] + ";<br>;");
+				lines.Add(from);
+			}
+
+			while (edges.FirstOrDefault(e => e.From == from) is (string From, string To) edge)
+			{
+				edges.Remove(edge);
+				lines.Add(edge.To);
+				from = edge.To;
+			}
+		}
+
+		return ([.. lines], [.. fixes]);
 	}
 }
