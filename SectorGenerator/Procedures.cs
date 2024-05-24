@@ -346,12 +346,27 @@ internal class Procedures(CIFP cifp)
 			Coordinate arcCenter = arc.Centerpoint.GetCoordinate();
 			TrueCourse startAngle = arcCenter.GetBearingDistance(startingPoint.GetCoordinate()).bearing ?? new(0);
 			TrueCourse endAngle = arcCenter.GetBearingDistance(arcEnd.GetCoordinate()).bearing ?? new(0);
+			TrueCourse arcEndHeading = arc.ArcTo.ToTrue();
 
 			decimal totalAngle = startAngle.Angle(endAngle);
-			bool up = arcEnd.Latitude < arcCenter.Latitude ^ arc.ArcTo.Degrees < 180;
+			decimal checkAngle = startAngle.Angle(arcEndHeading);
+
+			bool up;
+			// Check if arc is clockwise or counter-clockwise.
+			if (Math.Sign(totalAngle) == Math.Sign(checkAngle) && Math.Abs(checkAngle) > 90)
+				up = totalAngle >= 0;
+			else if (Math.Sign(totalAngle) == Math.Sign(checkAngle) && Math.Abs(checkAngle) < 90)
+			{
+				up = checkAngle < 0;
+				totalAngle = (360 - Math.Abs(totalAngle)) * -Math.Sign(totalAngle);
+			}
+			else if (Math.Abs(totalAngle) > 90)
+				up = totalAngle > 0;
+			else
+				up = checkAngle >= 0;
 
 			List<Coordinate> intermediatePoints = [];
-			for (Course angle = startAngle; up ? angle.Degrees < endAngle.Degrees : angle.Degrees > endAngle.Degrees; angle += up ? 15m : -15m)
+			for (Course angle = startAngle; up ? (totalAngle -= 15) > -15 : (totalAngle += 15) < 15; angle += up ? 15m : -15m)
 				intermediatePoints.Add(arcCenter.FixRadialDistance(angle, arc.Radius));
 
 			return ([.. procPrev(), .. intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted)), (arcEnd, instruction.Altitude)], null);

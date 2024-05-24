@@ -4,7 +4,7 @@ namespace SectorGenerator;
 
 internal static class ArtccBoundaries
 {
-	static readonly HttpClient _http = new();
+	static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30)};
 
 	const string ZNY_OCEANIC_INJECT = @"ZNY,0,2000,36420900N,072395800W,ZDC
 ZNY,0,2000,35054000N,072395800W,ZWY
