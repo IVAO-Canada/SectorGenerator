@@ -1,0 +1,7 @@
+﻿[*.cs]
+
+# CA1505: Avoid unmaintainable code
+dotnet_diagnostic.CA1501.severity = warning
+dotnet_diagnostic.CA1502.severity = warning
+dotnet_diagnostic.CA1505.severity = warning
+dotnet_diagnostic.CA1506.severity = warning

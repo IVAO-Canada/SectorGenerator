@@ -28,34 +28,44 @@ internal partial class Mrva
 			Task.Delay(100).Wait();
 	}
 
+	private async Task<Dictionary<string, XmlDocument>> GetMrvaXmlDocs()
+	{
+		Dictionary<string, XmlDocument> retval = [];
+		_directoryListing ??= await _http.GetStringAsync(FAA_MRVA_LISTING);
+
+		foreach (string xmlUrl in Fus3Url().Matches(_directoryListing).Select(m => m.Groups["url"].Value))
+		{
+			XmlDocument xmlDoc = new();
+			if (!_fileCache.TryGetValue(FAA_MRVA_ROOT + xmlUrl, out string? mrvaXmlData))
+			{
+				int failcount = 0;
+				while (mrvaXmlData is null && failcount < 5)
+				{
+					try
+					{
+						mrvaXmlData = await _http.GetStringAsync(FAA_MRVA_ROOT + xmlUrl);
+					}
+					catch (HttpRequestException) { failcount++; }
+				}
+				if (failcount >= 5)
+					continue;
+
+				_fileCache[FAA_MRVA_ROOT + xmlUrl] = mrvaXmlData!;
+			}
+
+			xmlDoc.LoadXml(mrvaXmlData!);
+			retval[xmlUrl] = xmlDoc;
+		}
+
+		return retval;
+	}
+
 	private async Task GenerateMrvas((double, double)[] boundary)
 	{
 		if (_mrvaBlobs.IsEmpty)
 		{
-
-			_directoryListing ??= await _http.GetStringAsync(FAA_MRVA_LISTING);
-
-			foreach (string xmlUrl in Fus3Url().Matches(_directoryListing).Select(m => m.Groups["url"].Value))
+			foreach (var (xmlUrl, xmlDoc) in await GetMrvaXmlDocs())
 			{
-				XmlDocument xmlDoc = new();
-				if (!_fileCache.TryGetValue(FAA_MRVA_ROOT + xmlUrl, out string? mrvaXmlData))
-				{
-					int failcount = 0;
-					while (mrvaXmlData is null && failcount < 5)
-					{
-						try
-						{
-							mrvaXmlData = await _http.GetStringAsync(FAA_MRVA_ROOT + xmlUrl);
-						}
-						catch (HttpRequestException) { failcount++; }
-					}
-					if (failcount >= 5)
-						continue;
-
-					_fileCache[FAA_MRVA_ROOT + xmlUrl] = mrvaXmlData!;
-				}
-
-				xmlDoc.LoadXml(mrvaXmlData!);
 				if (xmlDoc["ns8:AIXMBasicMessage"] is not XmlNode rootNode)
 					continue;
 

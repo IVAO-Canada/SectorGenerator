@@ -1,6 +1,10 @@
 ﻿using CIFPReader;
 
+using NetTopologySuite.Operation.Distance;
+
 using System.Runtime.InteropServices;
+
+using static CIFPReader.Procedure;
 
 namespace SectorGenerator;
 internal class Procedures(CIFP cifp)
@@ -262,23 +266,8 @@ internal class Procedures(CIFP cifp)
 		return ([.. lines], [.. fixes]);
 	}
 
-	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Procedure.Instruction? State) Step(ICoordinate startingPoint, int airportElevation, decimal magVar, string airportIcao, Procedure.Instruction instruction, Procedure.Instruction? state = null)
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) Step(ICoordinate startingPoint, int airportElevation, decimal magVar, string airportIcao, Instruction instruction, Instruction? state = null)
 	{
-		IEnumerable<(ICoordinate, AltitudeRestriction)> procPrev()
-		{
-			const double DEG_TO_RAD = Math.PI / 180;
-
-			if (state is null || state.Via is not Course viaCourse || instruction.ReferencePoint is null || instruction.Via is not Course interceptCourse)
-				yield break;
-
-			var (refLat, refLon) = ((double)instruction.ReferencePoint.Latitude, (double)instruction.ReferencePoint.Longitude);
-			var (lastLat, lastLon) = ((double)startingPoint.Latitude, (double)startingPoint.Longitude);
-			var (sinAngle, cosAngle) = Math.SinCos((double)interceptCourse.Radians);
-
-			double distToIntercept = Math.Abs(cosAngle * (refLat - lastLat) - sinAngle * (refLon - lastLon) * Math.Cos(DEG_TO_RAD * (double)startingPoint.Latitude));
-			yield return (startingPoint.GetCoordinate().FixRadialDistance(viaCourse, (decimal)distToIntercept), state.Altitude);
-		}
-
 		Distance? distance =
 			instruction.Termination.HasFlag(ProcedureLine.PathTermination.ForDistance)
 			? instruction.Endpoint as Distance
@@ -287,112 +276,145 @@ internal class Procedures(CIFP cifp)
 			  : null;
 
 		if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.Hold) && instruction.Via is Racetrack hold && hold.Point is not null)
-		{
-			const decimal radius = 1; // NMI
-
-			List<Coordinate> rtPoints = [];
-			Course inboundCourse = hold.InboundCourse is MagneticCourse imc ? imc.Resolve(magVar) : hold.InboundCourse;
-			Course outboundCourse = inboundCourse.Reciprocal;
-			Coordinate focus1 = hold.Point.GetCoordinate().FixRadialDistance(inboundCourse + (hold.LeftTurns ? -90m : 90m), radius),
-					   focus2 = focus1.FixRadialDistance(outboundCourse, radius * 3.5m);
-
-			for (decimal angle = -90m; angle <= 90m; angle += 15)
-				rtPoints.Add(focus1.FixRadialDistance(inboundCourse + angle, radius));
-
-			for (decimal angle = 90m; angle <= 270m; angle += 15)
-				rtPoints.Add(focus2.FixRadialDistance(inboundCourse + angle, radius));
-
-			return ([.. procPrev(), (hold.Point, instruction.Altitude), .. rtPoints.Select(p => (p, AltitudeRestriction.Unrestricted)), (hold.Point, AltitudeRestriction.Unrestricted)], null);
-		}
+			return StepRacetrack(startingPoint, magVar, instruction, state, hold);
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilCrossing))
-		{
-			if (instruction.Endpoint is NamedCoordinate nep && nep.Name.StartsWith("RW"))
-				return ([.. procPrev(), (nep with { Name = $"{airportIcao}/{nep.Name}" }, instruction.Altitude)], null);
-			if (instruction.Endpoint is ICoordinate dep)
-				return ([.. procPrev(), (dep, instruction.Altitude)], null);
-			else
-				throw new NotImplementedException();
-		}
+			return StepDirect(startingPoint, airportIcao, instruction, state);
 		else if (distance is not null)
-		{
-			if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.Heading) ||
-				 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Track) ||
-				 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Course))
-			{
-				if (instruction.Via is not Course c)
-					throw new NotImplementedException();
-
-				return ([.. procPrev(), (startingPoint.GetCoordinate().FixRadialDistance(c, distance.NMI), instruction.Altitude)], null);
-			}
-			else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.Direct))
-				return ([.. procPrev(), (startingPoint.GetCoordinate().FixRadialDistance(
-					startingPoint.GetCoordinate().GetBearingDistance(((ICoordinate)instruction.Endpoint!).GetCoordinate()).bearing ?? new(0),
-					distance.NMI
-				), instruction.Altitude)], null);
-			else
-				throw new NotImplementedException();
-		}
+			return StepDistance(startingPoint, instruction, state, distance);
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilTerminated))
-		{
-			if ((instruction.Termination.HasFlag(ProcedureLine.PathTermination.Heading) ||
-				 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Track) ||
-				 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Course)) && instruction.Via is Course hdg)
-				return ([.. procPrev(), (startingPoint.GetCoordinate().FixRadialDistance(hdg, 0.25m), instruction.Altitude)], null);
-			else
-				throw new NotImplementedException();
-		}
+			return StepVectors(startingPoint, instruction, state);
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.Arc) && instruction.Via is Arc arc && arc.Centerpoint is not null && instruction.Endpoint is ICoordinate arcEnd)
-		{
-			Coordinate arcCenter = arc.Centerpoint.GetCoordinate();
-			TrueCourse startAngle = arcCenter.GetBearingDistance(startingPoint.GetCoordinate()).bearing ?? new(0);
-			TrueCourse endAngle = arcCenter.GetBearingDistance(arcEnd.GetCoordinate()).bearing ?? new(0);
-			TrueCourse arcEndHeading = arc.ArcTo.ToTrue();
-
-			decimal totalAngle = startAngle.Angle(endAngle);
-			decimal checkAngle = startAngle.Angle(arcEndHeading);
-
-			bool up;
-			// Check if arc is clockwise or counter-clockwise.
-			if (Math.Sign(totalAngle) == Math.Sign(checkAngle) && Math.Abs(checkAngle) > 90)
-				up = totalAngle >= 0;
-			else if (Math.Sign(totalAngle) == Math.Sign(checkAngle) && Math.Abs(checkAngle) < 90)
-			{
-				up = checkAngle < 0;
-				totalAngle = (360 - Math.Abs(totalAngle)) * -Math.Sign(totalAngle);
-			}
-			else if (Math.Abs(totalAngle) > 90)
-				up = totalAngle > 0;
-			else
-				up = checkAngle >= 0;
-
-			List<Coordinate> intermediatePoints = [];
-			for (Course angle = startAngle; up ? (totalAngle -= 15) > -15 : (totalAngle += 15) < 15; angle += up ? 15m : -15m)
-				intermediatePoints.Add(arcCenter.FixRadialDistance(angle, arc.Radius));
-
-			return ([.. procPrev(), .. intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted)), (arcEnd, instruction.Altitude)], null);
-		}
+			return StepArc(startingPoint, instruction, state, arc, arcEnd);
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilRadial) && instruction.Endpoint is Radial radial && instruction.Via is Course c)
 		{
 			if (radial.GetIntersectionPoint(startingPoint, c)?.GetCoordinate() is Coordinate coord)
-				return ([.. procPrev(), (coord, AltitudeRestriction.Unrestricted)], instruction);
+				return ([.. ProcessPreviousStep(startingPoint, instruction, state), (coord, AltitudeRestriction.Unrestricted)], instruction);
 			else
-				return ([.. procPrev()], instruction);
+				return ([.. ProcessPreviousStep(startingPoint, instruction, state)], instruction);
 		}
 		else if (instruction.Endpoint is ICoordinate ep)
-			return ([.. procPrev(), (ep, instruction.Altitude)], null);
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (ep, instruction.Altitude)], null);
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilDistance) && instruction.Endpoint is Distance dist && dist.Point is not null && instruction.Via is Course crs)
-			return ([.. procPrev(), (dist.Point.GetCoordinate().FixRadialDistance(crs, dist.NMI), AltitudeRestriction.Unrestricted)], null);
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (dist.Point.GetCoordinate().FixRadialDistance(crs, dist.NMI), AltitudeRestriction.Unrestricted)], null);
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilIntercept))
-			return ([.. procPrev()], instruction);
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state)], instruction);
 		else
 			// Hmm... Not sure... Probably need to implement something if this happens.
-			return ([.. procPrev()], instruction);
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state)], instruction);
 	}
 
-	private static (string[] Lines, NamedCoordinate[] Fixes) GraphRender(Coordinate startPoint, int elevation, decimal magVar, string airportIcao, IEnumerable<Procedure.Instruction?> instructions)
+	private static IEnumerable<(ICoordinate, AltitudeRestriction)> ProcessPreviousStep(ICoordinate startingPoint, Instruction instruction, Instruction? state)
+	{
+		const double DEG_TO_RAD = Math.PI / 180;
+		if (state is null || state.Via is not Course viaCourse || instruction.ReferencePoint is null || instruction.Via is not Course interceptCourse)
+			yield break;
+
+		var (refLat, refLon) = ((double)instruction.ReferencePoint.Latitude, (double)instruction.ReferencePoint.Longitude);
+		var (lastLat, lastLon) = ((double)startingPoint.Latitude, (double)startingPoint.Longitude);
+		var (sinAngle, cosAngle) = Math.SinCos((double)interceptCourse.Radians);
+
+		double distToIntercept = Math.Abs(cosAngle * (refLat - lastLat) - sinAngle * (refLon - lastLon) * Math.Cos(DEG_TO_RAD * (double)startingPoint.Latitude));
+		yield return (startingPoint.GetCoordinate().FixRadialDistance(viaCourse, (decimal)distToIntercept), state.Altitude);
+	}
+
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) StepRacetrack(ICoordinate startingPoint, decimal magVar, Instruction instruction, Instruction? state, Racetrack hold)
+	{
+		const decimal radius = 1; // NMI
+		if (hold.Point is null)
+			return ([], null);
+
+		List<Coordinate> rtPoints = [];
+		Course inboundCourse = hold.InboundCourse is MagneticCourse imc ? imc.Resolve(magVar) : hold.InboundCourse;
+		Course outboundCourse = inboundCourse.Reciprocal;
+		Coordinate focus1 = hold.Point.GetCoordinate().FixRadialDistance(inboundCourse + (hold.LeftTurns ? -90m : 90m), radius),
+				   focus2 = focus1.FixRadialDistance(outboundCourse, radius * 3.5m);
+
+		for (decimal angle = -90m; angle <= 90m; angle += 15)
+			rtPoints.Add(focus1.FixRadialDistance(inboundCourse + angle, radius));
+
+		for (decimal angle = 90m; angle <= 270m; angle += 15)
+			rtPoints.Add(focus2.FixRadialDistance(inboundCourse + angle, radius));
+
+		return ([.. ProcessPreviousStep(startingPoint, instruction, state), (hold.Point, instruction.Altitude), .. rtPoints.Select(p => (p, AltitudeRestriction.Unrestricted)), (hold.Point, AltitudeRestriction.Unrestricted)], null);
+	}
+
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) StepArc(ICoordinate startingPoint, Instruction instruction, Instruction? state, Arc arc, ICoordinate arcEnd)
+	{
+		if (arc.Centerpoint?.GetCoordinate() is not Coordinate arcCenter)
+			return ([], null);
+
+		TrueCourse startAngle = arcCenter.GetBearingDistance(startingPoint.GetCoordinate()).bearing ?? new(0);
+		TrueCourse endAngle = arcCenter.GetBearingDistance(arcEnd.GetCoordinate()).bearing ?? new(0);
+		TrueCourse arcEndHeading = arc.ArcTo.ToTrue();
+
+		decimal totalAngle = startAngle.Angle(endAngle);
+		decimal checkAngle = startAngle.Angle(arcEndHeading);
+
+		bool up;
+		// Check if arc is clockwise or counter-clockwise.
+		if (Math.Sign(totalAngle) == Math.Sign(checkAngle) && Math.Abs(checkAngle) > 90)
+			up = totalAngle >= 0;
+		else if (Math.Sign(totalAngle) == Math.Sign(checkAngle) && Math.Abs(checkAngle) < 90)
+		{
+			up = checkAngle < 0;
+			totalAngle = (360 - Math.Abs(totalAngle)) * -Math.Sign(totalAngle);
+		}
+		else if (Math.Abs(totalAngle) > 90)
+			up = totalAngle > 0;
+		else
+			up = checkAngle >= 0;
+
+		List<Coordinate> intermediatePoints = [];
+		for (Course angle = startAngle; up ? (totalAngle -= 15) > -15 : (totalAngle += 15) < 15; angle += up ? 15m : -15m)
+			intermediatePoints.Add(arcCenter.FixRadialDistance(angle, arc.Radius));
+
+		return ([.. ProcessPreviousStep(startingPoint, instruction, state), .. intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted)), (arcEnd, instruction.Altitude)], null);
+	}
+
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) StepDistance(ICoordinate startingPoint, Instruction instruction, Instruction? state, Distance distance)
+	{
+		if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.Heading) ||
+			 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Track) ||
+			 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Course))
+		{
+			if (instruction.Via is not Course c)
+				throw new NotImplementedException();
+
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (startingPoint.GetCoordinate().FixRadialDistance(c, distance.NMI), instruction.Altitude)], null);
+		}
+		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.Direct))
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (startingPoint.GetCoordinate().FixRadialDistance(
+					startingPoint.GetCoordinate().GetBearingDistance(((ICoordinate)instruction.Endpoint!).GetCoordinate()).bearing ?? new(0),
+					distance.NMI
+				), instruction.Altitude)], null);
+		else
+			throw new NotImplementedException();
+	}
+
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) StepDirect(ICoordinate startingPoint, string airportIcao, Instruction instruction, Instruction? state)
+	{
+		if (instruction.Endpoint is NamedCoordinate nep && nep.Name.StartsWith("RW"))
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (nep with { Name = $"{airportIcao}/{nep.Name}" }, instruction.Altitude)], null);
+		if (instruction.Endpoint is ICoordinate dep)
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (dep, instruction.Altitude)], null);
+		else
+			throw new NotImplementedException();
+	}
+
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) StepVectors(ICoordinate startingPoint, Instruction instruction, Instruction? state)
+	{
+		if ((instruction.Termination.HasFlag(ProcedureLine.PathTermination.Heading) ||
+			 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Track) ||
+			 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Course)) && instruction.Via is Course hdg)
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (startingPoint.GetCoordinate().FixRadialDistance(hdg, 0.25m), instruction.Altitude)], null);
+		else
+			throw new NotImplementedException();
+	}
+
+	private static (string[] Lines, NamedCoordinate[] Fixes) GraphRender(Coordinate startPoint, int elevation, decimal magVar, string airportIcao, IEnumerable<Instruction?> instructions)
 	{
 		HashSet<NamedCoordinate> fixes = [];
-		Procedure.Instruction? state = null;
+		Instruction? state = null;
 		string? lastPoint = null;
 		HashSet<(string From, string To)> edges = [];
 
