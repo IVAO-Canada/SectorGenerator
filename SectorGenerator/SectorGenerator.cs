@@ -1,13 +1,12 @@
 ﻿#define OSM
 using CIFPReader;
 
-using SectorGenerator;
-
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+
 using WSleeman.Osm;
 
 using static SectorGenerator.Helpers;
@@ -235,7 +234,7 @@ public class Program
 		Console.WriteLine($" Done!");
 #endif
 		Console.Write("Generating procedures..."); await Console.Out.FlushAsync();
-		var apProcFixes = WriteProcedures(cifp, includeFolder);
+		var apProcFixes = await WriteProceduresAsync(cifp, includeFolder);
 		Console.WriteLine($" Done!");
 #if OSM
 		Console.Write("Generating MRVAs..."); await Console.Out.FlushAsync();
@@ -350,13 +349,18 @@ public class Program
 		);
 	}
 
-	static FrozenDictionary<string, HashSet<NamedCoordinate>> WriteProcedures(CIFP cifp, string includeFolder)
+	static async Task<FrozenDictionary<string, HashSet<NamedCoordinate>>> WriteProceduresAsync(CIFP cifp, string includeFolder)
 	{
 		string procedureFolder = Path.Combine(includeFolder, "procedures");
 		Directory.CreateDirectory(procedureFolder);
 
 		ConcurrentDictionary<string, HashSet<NamedCoordinate>> apProcFixes = [];
 		Procedures procs = new(cifp);
+
+		var tecRoutes = await Tec.GetRoutesAsync();
+		var (tecLines, tecFixes) = Procedures.TecLines(cifp, tecRoutes);
+		File.WriteAllLines(Path.Combine(procedureFolder, "KSCT.sid"), tecLines);
+		apProcFixes["KSCT"] = [..tecFixes];
 
 		Parallel.ForEach(cifp.Aerodromes.Values, airport =>
 		{
@@ -466,6 +470,8 @@ STOPBAR;#B30000;
 				.Select(rws => $"{crg.Airport};{rws.Primary.Identifier};{rws.Opposite.Identifier};{rws.Primary.TDZE.ToMSL().Feet};{rws.Opposite.TDZE.ToMSL().Feet};" + 
 							   $"{(int)rws.Primary.Course.Degrees};{(int)rws.Opposite.Course.Degrees};" +
 							   $"{rws.Primary.Endpoint.Latitude:00.0####};{rws.Primary.Endpoint.Longitude:000.0####};{rws.Opposite.Endpoint.Latitude:00.0####};{rws.Opposite.Endpoint.Longitude:000.0####};")
+		).Append(
+			"KSCT;TEC;TEC;100;100;0;0;0;0;0;0;"
 		)
 	));
 
