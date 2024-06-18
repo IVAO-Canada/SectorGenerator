@@ -341,7 +341,7 @@ public class Program
 
 		File.WriteAllLines(
 			Path.Combine(geoFolder, "coast.geo"),
-			coastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => n.Latitude > 15 && n.Longitude < -50 && (n.Latitude < 49 || n.Longitude < -129.5))).SelectMany(w =>
+			coastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => (n.Latitude > 15 && n.Longitude < -50 && (n.Latitude < 49 || n.Longitude < -129.5)) || (n.Longitude >= 130 && n.Latitude >= -5 && n.Latitude < 50))).SelectMany(w =>
 				w.Nodes.Zip(w.Nodes.Skip(1).Append(w.Nodes[0])).Select(np =>
 					$"{np.First.Latitude:00.0####};{np.First.Longitude:000.0####};{np.Second.Latitude:00.0####};{np.Second.Longitude:000.0####};COAST;"
 				)
