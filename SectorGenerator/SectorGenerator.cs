@@ -342,7 +342,7 @@ public class Program
 
 		File.WriteAllLines(
 			Path.Combine(geoFolder, "coast.geo"),
-			coastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => (n.Latitude > 15 && n.Longitude < -50 && (n.Latitude < 49 || n.Longitude < -129.5)) || (n.Longitude >= 130 && n.Latitude >= -5 && n.Latitude < 50))).SelectMany(w =>
+			coastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => ((n.Latitude > 15 && n.Longitude < -50 && (n.Latitude < 49 || n.Longitude < -129.5))) || (n.Longitude >= 131.5 && n.Latitude >= 0 && n.Latitude < 21))).SelectMany(w =>
 				w.BreakAntimeridian().Nodes.Zip(w.Nodes.Skip(1).Append(w.Nodes[0])).Select(np =>
 					Math.Abs(np.First.Longitude - np.Second.Longitude) > 180
 					? "// BREAK AT ANTIMERIDIAN."

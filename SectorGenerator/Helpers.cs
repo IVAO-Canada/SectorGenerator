@@ -400,13 +400,13 @@ internal static class Helpers
 
 		foreach (Node coord in source.Nodes)
 		{
-			if (coord.Longitude < -90 && last.Longitude > 90 || coord.Longitude > 90 && last.Longitude < -90)
+			if ((coord.Longitude < -90 && last.Longitude > 90) || (coord.Longitude > 90 && last.Longitude < -90))
 			{
 				double thisDist = 180 - Math.Abs(coord.Latitude);
 				double ratio = thisDist / (thisDist + (180 - Math.Abs(last.Latitude)));
 
-				Node left = new(0, lerp(last.Latitude, coord.Latitude, ratio), 180, FrozenDictionary<string, string>.Empty),
-					 right = new(0, lerp(last.Latitude, coord.Latitude, ratio), -180, FrozenDictionary<string, string>.Empty);
+				Node left = new(0, lerp(last.Latitude, coord.Latitude, ratio), 179.9999, FrozenDictionary<string, string>.Empty),
+					 right = new(0, lerp(last.Latitude, coord.Latitude, ratio), -179.9999, FrozenDictionary<string, string>.Empty);
 
 				// Break up points at the antimeridian.
 				if (last.Longitude > 0)
