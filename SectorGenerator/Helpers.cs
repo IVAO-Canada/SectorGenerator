@@ -1,5 +1,6 @@
 ﻿using CIFPReader;
 
+using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
@@ -35,6 +36,9 @@ internal static class Helpers
 	{
 		double minLat = polygon.Min(p => p.Latitude), maxLat = polygon.Max(p => p.Latitude),
 			  minLon = polygon.Min(p => p.Longitude), maxLon = polygon.Max(p => p.Longitude);
+
+		if (maxLon - minLon > 180)
+			return IsInPolygon([.. polygon.Select(p => (p.Latitude, (p.Longitude + 360) % 360))], (point.Latitude, (point.Longitude + 360) % 360));
 
 		if (point.Latitude < minLat || point.Latitude > maxLat
 		 || point.Longitude < minLon || point.Longitude > maxLon)
@@ -385,6 +389,46 @@ internal static class Helpers
 			return (double.NaN, s);
 
 		return (alpha_1 * RAD_TO_DEG, s);
+	}
+
+	public static Way BreakAntimeridian(this Way source)
+	{
+		static double lerp(double a, double b, double t) => a + (b - a) * t;
+
+		List<Node> nodes = [];
+		Node last = source.Nodes[0];
+
+		foreach (Node coord in source.Nodes)
+		{
+			if (coord.Longitude < -90 && last.Longitude > 90 || coord.Longitude > 90 && last.Longitude < -90)
+			{
+				double thisDist = 180 - Math.Abs(coord.Latitude);
+				double ratio = thisDist / (thisDist + (180 - Math.Abs(last.Latitude)));
+
+				Node left = new(0, lerp(last.Latitude, coord.Latitude, ratio), 180, FrozenDictionary<string, string>.Empty),
+					 right = new(0, lerp(last.Latitude, coord.Latitude, ratio), -180, FrozenDictionary<string, string>.Empty);
+
+				// Break up points at the antimeridian.
+				if (last.Longitude > 0)
+				{
+					nodes.Add(left);
+					nodes.Add(right);
+				}
+				else
+				{
+					nodes.Add(right);
+					nodes.Add(left);
+				}
+
+				nodes.Add(coord);
+			}
+			else
+				nodes.Add(coord);
+
+			last = coord;
+		}
+
+		return new(source.Id, [..nodes], source.Tags);
 	}
 }
 

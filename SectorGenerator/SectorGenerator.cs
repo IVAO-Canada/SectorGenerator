@@ -102,6 +102,7 @@ public class Program
 					"TJ" => "ZSU",
 					"PH" => "ZHN",
 					"PA" => "ZAN",
+					"PG" => "ZUA",
 					_ => "ZZZ"
 				};
 			}
@@ -262,7 +263,7 @@ public class Program
 		"ZSU" => "TJZS",
 		"ZAN" => "PAZA",
 		"ZHN" => "PHZH",
-		"ZGU" => "PGZU",
+		"ZGU" => "KZAK",
 		_ => "K" + faa
 	};
 
@@ -342,8 +343,10 @@ public class Program
 		File.WriteAllLines(
 			Path.Combine(geoFolder, "coast.geo"),
 			coastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => (n.Latitude > 15 && n.Longitude < -50 && (n.Latitude < 49 || n.Longitude < -129.5)) || (n.Longitude >= 130 && n.Latitude >= -5 && n.Latitude < 50))).SelectMany(w =>
-				w.Nodes.Zip(w.Nodes.Skip(1).Append(w.Nodes[0])).Select(np =>
-					$"{np.First.Latitude:00.0####};{np.First.Longitude:000.0####};{np.Second.Latitude:00.0####};{np.Second.Longitude:000.0####};COAST;"
+				w.BreakAntimeridian().Nodes.Zip(w.Nodes.Skip(1).Append(w.Nodes[0])).Select(np =>
+					Math.Abs(np.First.Longitude - np.Second.Longitude) > 180
+					? "// BREAK AT ANTIMERIDIAN."
+					: $"{np.First.Latitude:00.0####};{np.First.Longitude:000.0####};{np.Second.Latitude:00.0####};{np.Second.Longitude:000.0####};COAST;"
 				)
 			)
 		);
@@ -360,7 +363,7 @@ public class Program
 		var tecRoutes = await Tec.GetRoutesAsync();
 		var (tecLines, tecFixes) = Procedures.TecLines(cifp, tecRoutes);
 		File.WriteAllLines(Path.Combine(procedureFolder, "KSCT.sid"), tecLines);
-		apProcFixes["KSCT"] = [..tecFixes];
+		apProcFixes["KSCT"] = [.. tecFixes];
 
 		Parallel.ForEach(cifp.Aerodromes.Values, airport =>
 		{
@@ -413,7 +416,7 @@ public class Program
 
 		(double Latitude, double Longitude) centerpoint = (
 			ifrAirports.Average(ap => (double)ap.Location.Latitude),
-			ifrAirports.Average(ap => (double)ap.Location.Longitude)
+			ifrAirports.Average(ap => (double)(ap.Location.Longitude > 0 ? ap.Location.Longitude - 360 : ap.Location.Longitude))
 		);
 
 		// Info.
@@ -467,7 +470,7 @@ STOPBAR;#B30000;
 			crg.Runways
 				.Where(rw => rw.Identifier.CompareTo(rw.OppositeIdentifier) <= 0 && crg.Runways.Any(rw2 => rw.OppositeIdentifier == rw2.Identifier))
 				.Select(rw => (Primary: rw, Opposite: crg.Runways.First(rw2 => rw2.Identifier == rw.OppositeIdentifier)))
-				.Select(rws => $"{crg.Airport};{rws.Primary.Identifier};{rws.Opposite.Identifier};{rws.Primary.TDZE.ToMSL().Feet};{rws.Opposite.TDZE.ToMSL().Feet};" + 
+				.Select(rws => $"{crg.Airport};{rws.Primary.Identifier};{rws.Opposite.Identifier};{rws.Primary.TDZE.ToMSL().Feet};{rws.Opposite.TDZE.ToMSL().Feet};" +
 							   $"{(int)rws.Primary.Course.Degrees};{(int)rws.Opposite.Course.Degrees};" +
 							   $"{rws.Primary.Endpoint.Latitude:00.0####};{rws.Primary.Endpoint.Longitude:000.0####};{rws.Opposite.Endpoint.Latitude:00.0####};{rws.Opposite.Endpoint.Longitude:000.0####};")
 		).Append(
@@ -567,17 +570,17 @@ F;high.artcc
 			return $"L;{seg.Name};{lat:00.0####};{lon:000.0####};{seg.MinimumAltitude / 100:000};8;";
 		}
 
-		foreach (var (fn, volume) in mrvas.Volumes)
-			try
-			{
-				File.WriteAllLines(Path.Combine(mvaFolder, ArtccIcao(fn) + ".mva"),
-					volume.Select(seg => string.Join("\r\n",
-						seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
-										  .Prepend(genLabelLine(fn, seg))
-					))
-				);
-			}
-			catch (IOException) { /* File in use. */ }
+			foreach (var (fn, volume) in mrvas.Volumes)
+				try
+				{
+					File.WriteAllLines(Path.Combine(mvaFolder, ArtccIcao(fn) + ".mva"),
+						volume.Select(seg => string.Join("\r\n",
+							seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
+											  .Prepend(genLabelLine(fn, seg))
+						))
+					);
+				}
+				catch (IOException) { /* File in use. */ }
 
 		// Airports (additional).
 		File.AppendAllLines(Path.Combine(artccFolder, "airports.ap"), [..
