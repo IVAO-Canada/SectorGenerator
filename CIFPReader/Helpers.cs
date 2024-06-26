@@ -1005,7 +1005,10 @@ public static class Extensions
 	public static bool TryConcretize(this Dictionary<string, HashSet<ICoordinate>> fixes, string wp, [NotNullWhen(true)] out NamedCoordinate? coord, Coordinate? refCoord = null, string? refString = null)
 	{
 		if (!fixes.TryGetValue(wp, out HashSet<ICoordinate>? value))
-			throw new ArgumentException($"Unknown waypoint {wp}. Please call the FAA at +1 (800) 638-8972 to report the discrepancy.", nameof(wp));
+		{
+			coord = null;
+			return false;
+		}
 
 		if (value.Count == 1)
 		{
@@ -1052,7 +1055,7 @@ public static class Extensions
 		if (TryConcretize(fixes, wp, out var res, refCoord, refString))
 			return res.Value;
 		else
-			throw new Exception($"Could not resolve waypoint {wp} without context.");
+			throw new Exception($"Unknown waypoint {wp}.");
 	}
 
 	public static Navaid Concretize(this Dictionary<string, HashSet<Navaid>> navaids, string wp, Coordinate? refCoord = null, string? refString = null)

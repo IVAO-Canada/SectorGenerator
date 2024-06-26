@@ -234,8 +234,15 @@ public class SID : Procedure
 		))
 		{
 			string refFix = (inboundTransition.Key.StartsWith("RW") && inboundTransition.Key.Length >= 4 && inboundTransition.Key[2..4].All(char.IsDigit)) ? (Airport + "/" + inboundTransition.Key[2..]) : (Airport + "/" + inboundTransition.Key);
-			lastReturned = new(PathTermination.UntilCrossing | PathTermination.Direct, new UnresolvedWaypoint(refFix).Resolve(fixes, Airport is null ? null : new UnresolvedWaypoint(Airport)), null, null, SpeedRestriction.Unrestricted, AltitudeRestriction.Unrestricted);
-			yield return lastReturned;
+
+			try
+			{
+				lastReturned = new(PathTermination.UntilCrossing | PathTermination.Direct, new UnresolvedWaypoint(refFix).Resolve(fixes, Airport is null ? null : new UnresolvedWaypoint(Airport)), null, null, SpeedRestriction.Unrestricted, AltitudeRestriction.Unrestricted);
+			}
+			catch (ArgumentException) { }
+
+			if (lastReturned is not null)
+				yield return lastReturned;
 
 			if (!(char.IsDigit(refFix[^1]) || "LCR".Contains(refFix[^1])))
 				System.Diagnostics.Debugger.Break();
@@ -812,7 +819,8 @@ public class Approach : Procedure
 					var =
 value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is ICoordinate c ? c : throw new Exception("Unable to pin magvar for IAP."))).GetCoordinate()))
 					   .Select(na =>
-						   na switch {
+						   na switch
+						   {
 							   VOR v => v.MagneticVariation,
 							   NavaidILS ni => ni.MagneticVariation,
 							   ILS i => i.LocalizerCourse.Variation,
@@ -883,7 +891,7 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 						catch (ArgumentException aex)
 						{
 							// Fix not in DB. FAA screwed up.
-							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex}");
+							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex.Message} Please call the FAA at +1 (800) 638-8972 to report the discrepancy.");
 						}
 					}
 					transitions.Add(lineHead.Transition, [.. rt]);
@@ -902,7 +910,7 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 						catch (ArgumentException aex)
 						{
 							// Fix not in DB. FAA screwed up.
-							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex}");
+							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex.Message} Please call the FAA at +1 (800) 638-8972 to report the discrepancy.");
 						}
 					}
 					commonRoute = [.. cr];
