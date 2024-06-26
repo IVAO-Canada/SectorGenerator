@@ -239,7 +239,7 @@ public class SID : Procedure
 			{
 				lastReturned = new(PathTermination.UntilCrossing | PathTermination.Direct, new UnresolvedWaypoint(refFix).Resolve(fixes, Airport is null ? null : new UnresolvedWaypoint(Airport)), null, null, SpeedRestriction.Unrestricted, AltitudeRestriction.Unrestricted);
 			}
-			catch (ArgumentException) { }
+			catch (Exception aex) when (aex is ArgumentException or AggregateException) { }
 
 			if (lastReturned is not null)
 				yield return lastReturned;
@@ -888,7 +888,7 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 
 							rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
 						}
-						catch (ArgumentException aex)
+						catch (Exception aex) when (aex is ArgumentException or AggregateException)
 						{
 							// Fix not in DB. FAA screwed up.
 							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex.Message} Please call the FAA at +1 (800) 638-8972 to report the discrepancy.");
@@ -907,7 +907,7 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 
 							cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
 						}
-						catch (ArgumentException aex)
+						catch (Exception aex) when (aex is ArgumentException or AggregateException)
 						{
 							// Fix not in DB. FAA screwed up.
 							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex.Message} Please call the FAA at +1 (800) 638-8972 to report the discrepancy.");
