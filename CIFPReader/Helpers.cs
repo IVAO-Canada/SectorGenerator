@@ -1005,7 +1005,7 @@ public static class Extensions
 	public static bool TryConcretize(this Dictionary<string, HashSet<ICoordinate>> fixes, string wp, [NotNullWhen(true)] out NamedCoordinate? coord, Coordinate? refCoord = null, string? refString = null)
 	{
 		if (!fixes.TryGetValue(wp, out HashSet<ICoordinate>? value))
-			throw new ArgumentException($"Unknown waypoint {wp}.", nameof(wp));
+			throw new ArgumentException($"Unknown waypoint {wp}. Please call the FAA at +1 (800) 638-8972 to report the discrepancy.", nameof(wp));
 
 		if (value.Count == 1)
 		{

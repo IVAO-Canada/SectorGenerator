@@ -1,4 +1,4 @@
-﻿#define OSM
+﻿//#define OSM
 using CIFPReader;
 
 using System.Collections.Concurrent;

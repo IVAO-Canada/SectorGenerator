@@ -228,8 +228,8 @@ public class SID : Procedure
 	{
 		Instruction? lastReturned = null;
 
-		foreach (var inboundTransition in runwayTransitions.SelectMany(rt => 
-			(rt.Key.StartsWith("RW") && rt.Key.EndsWith('B') ? (string[])[ rt.Key[..^1] + "L", rt.Key[..^1] + "R" ] : [ rt.Key ])
+		foreach (var inboundTransition in runwayTransitions.SelectMany(rt =>
+			(rt.Key.StartsWith("RW") && rt.Key.EndsWith('B') ? (string[])[rt.Key[..^1] + "L", rt.Key[..^1] + "R"] : [rt.Key])
 				.Select(k => new KeyValuePair<string, Instruction[]>(k, rt.Value))
 		))
 		{
@@ -802,6 +802,7 @@ public class Approach : Procedure
 			referencePoint = uwps[0].Resolve(fixes, uwps[1]);
 		}
 
+		/// <exception cref="ArgumentException">Could not find a waypoint.</exception>
 		ApproachLine fix(ApproachLine line)
 		{
 			MagneticCourse fixMagnetic(MagneticCourse mc)
@@ -873,9 +874,17 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 					List<Instruction> rt = [];
 					for (; linectr < lines.Length && (lines[linectr].RouteType, lines[linectr].Transition) == (ApproachLine.ApproachRouteType.Transition, lineHead.Transition); ++linectr)
 					{
-						var line = fix(lines[linectr]);
+						try
+						{
+							var line = fix(lines[linectr]);
 
-						rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+							rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+						}
+						catch (ArgumentException aex)
+						{
+							// Fix not in DB. FAA screwed up.
+							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex}");
+						}
 					}
 					transitions.Add(lineHead.Transition, [.. rt]);
 					break;
@@ -884,9 +893,17 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 					List<Instruction> cr = [];
 					for (; linectr < lines.Length && lines[linectr].RouteType != ApproachLine.ApproachRouteType.Transition; ++linectr)
 					{
-						var line = fix(lines[linectr]);
+						try
+						{
+							var line = fix(lines[linectr]);
 
-						cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+							cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+						}
+						catch (ArgumentException aex)
+						{
+							// Fix not in DB. FAA screwed up.
+							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex}");
+						}
 					}
 					commonRoute = [.. cr];
 					break;
