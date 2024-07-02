@@ -32,13 +32,22 @@ public class Program
 		Dictionary<string, (double Latitude, double Longitude)[]> artccBoundaries = [];
 		Dictionary<string, string[]> artccNeighbours = [];
 		string[] faaArtccs = [];
-		await Task.WhenAll([
-			Task.Run(async () => (artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath)),
+
+		for (int iterations = 0; iterations < 3; ++iterations)
+		{
+			try
+			{
+				await Task.WhenAll([
+					Task.Run(async () => (artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath)),
 			Task.Run(() => cifp = CIFP.Load()),
 #if OSM
 			Task.Run(async () => osm = await Osm.Load())
 #endif
-		]);
+				]);
+				break;
+			}
+			catch (TimeoutException) { /* Sometimes things choke. */ }
+		}
 
 #if OSM
 		// Keep the compiler happy with fallback checks.

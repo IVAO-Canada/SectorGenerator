@@ -259,8 +259,17 @@ ZAN,0,20310,64595960N,168582405W,UHMM";
 				.Select(m => m.Value)
 				.ToArray();
 
-			link = allLinks.Order().Last();
-			List<string> boundaryLines = [..(await _http.GetStringAsync(link)).Split("\r\n")];
+			List<string> boundaryLines = [];
+			
+			foreach (string matchLink in allLinks.Order().Reverse())
+			{
+				try
+				{
+					boundaryLines = [.. (await _http.GetStringAsync(matchLink)).Split("\r\n")];
+					break;
+				}
+				catch (HttpRequestException) { /* Link hasn't been fulfilled yet. Iterate back. */ }
+			}
 			int idx = boundaryLines.IndexOf("ZNY,0,2000,36420900N,072395800W,ZDC");
 			boundaryLines[idx] = ZNY_OCEANIC_INJECT;
 
