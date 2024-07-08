@@ -37,8 +37,8 @@ public class Program
 		{
 			try
 			{
+				(artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath);
 				await Task.WhenAll([
-					Task.Run(async () => (artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath)),
 					Task.Run(() => cifp ??= CIFP.Load()),
 #if OSM
 					Task.Run(async () => osm ??= await Osm.Load())

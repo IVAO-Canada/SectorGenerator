@@ -310,6 +310,10 @@ ZAN,0,20310,64595960N,168582405W,UHMM";
 			boundaryPoints.Add(ctr, points);
 		}
 
+		Console.WriteLine("////////////////////////////////////////////////////////////");
+		Console.WriteLine(boundaryFileContents);
+		Console.WriteLine("////////////////////////////////////////////////////////////");
+
 		return (
 			boundaryPoints.Select(b => new KeyValuePair<string, (double, double)[]>(
 				b.Key,
