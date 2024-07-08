@@ -39,14 +39,15 @@ public class Program
 			{
 				await Task.WhenAll([
 					Task.Run(async () => (artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath)),
-			Task.Run(() => cifp = CIFP.Load()),
+					Task.Run(() => cifp ??= CIFP.Load()),
 #if OSM
-			Task.Run(async () => osm = await Osm.Load())
+					Task.Run(async () => osm ??= await Osm.Load())
 #endif
 				]);
 				break;
 			}
 			catch (TimeoutException) { /* Sometimes things choke. */ }
+			catch (TaskCanceledException) { /* Sometimes things choke. */ }
 		}
 
 #if OSM
@@ -58,6 +59,8 @@ public class Program
 		}
 		Console.WriteLine(" Done!");
 #endif
+
+		Console.WriteLine("Generating sectors: " + string.Join(" ", faaArtccs));
 
 		// Generate copy-pasteable Webeye shapes for each of the ARTCCs.
 		(string Artcc, string Shape)[] artccWebeyeShapes = [..
@@ -541,7 +544,7 @@ F;high.artcc
 			(double Latitude, double Longitude)[] points =
 				faaArtccs.Contains(artcc)
 				? artccBoundaries[artcc]
-				: [..artccBoundaries[artcc], ..artccBoundaries[artcc].Reverse()];
+				: [.. artccBoundaries[artcc], .. artccBoundaries[artcc].Reverse()];
 
 			var pairs = points.Zip(points[1..].Append(points[0])).Append((First: points[0], Second: points[0]));
 
