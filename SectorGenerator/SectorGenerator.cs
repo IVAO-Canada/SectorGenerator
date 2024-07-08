@@ -420,7 +420,7 @@ public class Program
 
 		if (ifrAirports.Length == 0)
 		{
-			Console.WriteLine($"{artcc} skipped.");
+			Console.Write($"({artcc} skipped (no airports))");
 			return;
 		}
 
