@@ -286,8 +286,8 @@ ZAN,0,20310,64595960N,168582405W,UHMM";
 			while (boundaryLines[idx] != "ZMA,0,3000,20000000N,073200000W,HAV")
 				boundaryLines.RemoveAt(idx);
 
-			boundaryLines.Insert(idx, ZMA_TEG_BODLO_INJECT);
-			boundaryLines.Add(PACIFIC_INJECT);
+			boundaryLines.Insert(idx, ZMA_TEG_BODLO_INJECT.ReplaceLineEndings("\r\n"));
+			boundaryLines.Add(PACIFIC_INJECT.ReplaceLineEndings("\r\n"));
 
 			boundaryFileContents = string.Join("\r\n", boundaryLines);
 		}
