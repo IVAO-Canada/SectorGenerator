@@ -62,7 +62,18 @@ internal static class Helpers
 		HttpClient http = new();
 		http.DefaultRequestHeaders.Authorization = new("Bearer", token);
 		http.BaseAddress = new(@"https://api.ivao.aero");
-		HashSet<JsonObject> positions = [.. (await http.GetFromJsonAsync<JsonArray>("/v2/ATCPositions/all?loadAirport=false"))!.Cast<JsonObject>()];
+		HashSet<JsonObject>? positions = null;
+		
+		while (positions is null)
+		{
+			try
+			{
+				positions = [.. (await http.GetFromJsonAsync<JsonArray>("/v2/ATCPositions/all?loadAirport=false"))!.Cast<JsonObject>()];
+			}
+			catch (TimeoutException) { /* Dammit, IVAO! */ }
+			catch (TaskCanceledException) { /* Dammit, IVAO! */ }
+		}
+
 		List<JsonObject> centerObjs = [];
 
 		foreach (string p in prefixes)
