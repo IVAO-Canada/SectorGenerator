@@ -313,6 +313,7 @@ ZAN,0,20310,64595960N,168582405W,UHMM";
 		Console.WriteLine("////////////////////////////////////////////////////////////");
 		Console.WriteLine(boundaryFileContents);
 		Console.WriteLine("////////////////////////////////////////////////////////////");
+		Console.WriteLine("Returning ARTCCS: " + string.Join(" ", boundaryFileContents.Split("\r\n").Select(l => l.Split(',')[0]).Distinct().Order()));
 
 		return (
 			boundaryPoints.Select(b => new KeyValuePair<string, (double, double)[]>(
