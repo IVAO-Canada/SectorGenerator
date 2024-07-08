@@ -38,6 +38,8 @@ public class Program
 			try
 			{
 				(artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath);
+				Console.WriteLine("Generating sectors: " + string.Join(" ", faaArtccs));
+
 				await Task.WhenAll([
 					Task.Run(() => cifp ??= CIFP.Load()),
 #if OSM
@@ -59,8 +61,6 @@ public class Program
 		}
 		Console.WriteLine(" Done!");
 #endif
-
-		Console.WriteLine("Generating sectors: " + string.Join(" ", faaArtccs));
 
 		// Generate copy-pasteable Webeye shapes for each of the ARTCCs.
 		(string Artcc, string Shape)[] artccWebeyeShapes = [..

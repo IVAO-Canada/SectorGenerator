@@ -265,7 +265,7 @@ ZAN,0,20310,64595960N,168582405W,UHMM";
 			{
 				try
 				{
-					boundaryLines = [.. (await _http.GetStringAsync(matchLink)).Split("\r\n")];
+					boundaryLines = [.. (await _http.GetStringAsync(matchLink)).Split("\r\n").Where(l => l.Length > 3 && l[3] == ',')];
 					break;
 				}
 				catch (HttpRequestException) { /* Link hasn't been fulfilled yet. Iterate back. */ }
@@ -328,7 +328,7 @@ ZAN,0,20310,64595960N,168582405W,UHMM";
 				b.Value.Select(l => l[5]).Distinct().ToArray()
 			)).ToDictionary(),
 
-			[..boundaryFileContents.Split("\r\n").Where(l => l.Length > 3 && l[0] == 'Z' && l[3] == ',').Select(l => l.Split(',')[0]).Distinct().Order()]
+			[..boundaryFileContents.Split("\r\n").Select(l => l.Split(',')[0]).Distinct().Order()]
 		);
 	}
 
