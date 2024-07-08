@@ -324,7 +324,7 @@ ZAN,0,20310,64595960N,168582405W,UHMM";
 				b.Value.Select(l => l[5]).Distinct().ToArray()
 			)).ToDictionary(),
 
-			[..boundaryFileContents.Split("\r\n").Where(l => l.Length > 3 && l[0] == 'Z' && l[3] == ',').Select(l => l.Split(',')[0]).Distinct()]
+			[..boundaryFileContents.Split("\r\n").Where(l => l.Length > 3 && l[0] == 'Z' && l[3] == ',').Select(l => l.Split(',')[0]).Distinct().Order()]
 		);
 	}
 
