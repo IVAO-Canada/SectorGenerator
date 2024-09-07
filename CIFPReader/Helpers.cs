@@ -100,7 +100,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		List<ApproachLine> iapSteps = [];
 		List<AirwayFixLine> awLines = [];
 
-		RecordLine[] rls = [.. cifpFileLines.SkipWhile(l => l.StartsWith("HDR")).AsParallel().AsOrdered().Select(RecordLine.Parse).Where(rl => rl is not null).Cast<RecordLine>()];
+		RecordLine[] rls = [.. cifpFileLines.SkipWhile(l => l.StartsWith("HDR")).AsParallel().AsOrdered().Select(l => { try { return RecordLine.Parse(l); } catch { return null; } }).Where(rl => rl is not null).Cast<RecordLine>()];
 
 		for (int lineIndex = 0; lineIndex < rls.Length; ++lineIndex)
 		{
