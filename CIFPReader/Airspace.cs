@@ -1024,12 +1024,16 @@ public record AirportMSA(string Client,
 
 		List<MSASector> sectors = new();
 		for (int startIndex = 42; startIndex <= 108 && line[startIndex] != ' '; startIndex += 11)
-			sectors.Add(MSASector.Parse(line[startIndex..(startIndex + 11)]));
+			try
+			{
+				sectors.Add(MSASector.Parse(line[startIndex..(startIndex + 11)]));
+			}
+			catch { }
 
 		if (sectors.Count < 7)
 			CheckEmpty(line, (sectors.Count * 11) + 42, 119);
 
-		// Magnetic courses only. Could probably extend this to true pretty easily, Ijust don't know the other value.
+		// Magnetic courses only. Could probably extend this to true pretty easily, I just don't know the other value.
 		Check(line, 119, 120, "M");
 
 		CheckEmpty(line, 120, 123);
