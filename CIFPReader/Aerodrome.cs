@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace CIFPReader;
@@ -6,10 +6,9 @@ namespace CIFPReader;
 #pragma warning disable IDE0059
 
 [JsonConverter(typeof(AerodromeJsonSerializer))]
-public abstract record Aerodrome(string Client, string Header,
-	string Identifier, string IATACode, ICoordinate Location, decimal MagneticVariation, AltitudeMSL Elevation,
-	Altitude TransitionAlt, FlightLevel TransitionFL, Aerodrome.AirportUsage Usage, string Name,
-	int FileRecordNumber, int Cycle) : RecordLine(Client, Header, FileRecordNumber, Cycle)
+public abstract record Aerodrome(string Header,
+	string Identifier, string IATACode, ICoordinate Location, AltitudeMSL Elevation,
+	Altitude TransitionAlt, FlightLevel TransitionFL, Aerodrome.AirportUsage Usage, string Name) : RecordLine(Header)
 {
 
 	public enum AirportUsage
@@ -68,11 +67,10 @@ public abstract record Aerodrome(string Client, string Header,
 	}
 }
 
-public record Airport(string Client,
-	string Identifier, string IATACode, uint MaxRunwayLength, bool IFR, ICoordinate Location, decimal MagneticVariation, AltitudeMSL Elevation,
-	Altitude TransitionAlt, FlightLevel TransitionFL, Aerodrome.AirportUsage Usage, string Name,
-	int FileRecordNumber, int Cycle) : Aerodrome(Client, "PA", Identifier, IATACode, Location, MagneticVariation, Elevation,
-												 TransitionAlt, TransitionFL, Usage, Name, FileRecordNumber, Cycle)
+public record Airport(
+	string Identifier, string IATACode, bool IFR, ICoordinate Location, AltitudeMSL Elevation,
+	Altitude TransitionAlt, FlightLevel TransitionFL, Aerodrome.AirportUsage Usage, string Name
+	) : Aerodrome("PA", Identifier, IATACode, Location, Elevation, TransitionAlt, TransitionFL, Usage, Name)
 {
 	public static new Airport Parse(string line)
 	{
@@ -98,14 +96,13 @@ public record Airport(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, identifier, iataCode, maxRwyLen, ifr, location, magVar, elevation, transitionAlt, transitionLevel, usage, name, frn, cycle);
+		return new(identifier, iataCode, ifr, location, elevation, transitionAlt, transitionLevel, usage, name);
 	}
 }
 
-public record Runway(string Client,
+public record Runway(
 	string Airport, string Identifier, uint Length, uint Width, Course Course, ICoordinate Endpoint, Altitude TDZE, Altitude TCH,
-	string? Approach, Runway.RunwayApproachCategory ApproachCategory,
-	int FileRecordNumber, int Cycle) : RecordLine(Client, "PG", FileRecordNumber, Cycle)
+	string? Approach, Runway.RunwayApproachCategory ApproachCategory) : RecordLine("PG")
 {
 	[JsonIgnore]
 	public string OppositeIdentifier =>
@@ -180,8 +177,8 @@ public record Runway(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, airport, runway[2..], length, width, course, position, tdze, thresholdCrossingHeight,
-				   approachIdent, approachCategory, frn, cycle);
+		return new(airport, runway[2..], length, width, course, position, tdze, thresholdCrossingHeight,
+				   approachIdent, approachCategory);
 	}
 
 	public enum RunwayApproachCategory
@@ -202,8 +199,8 @@ public record Runway(string Client,
 public record Heliport(string Client,
 	string Identifier, string IATACode, string PadIdentifier, bool IFR, ICoordinate Location, decimal MagneticVariation, AltitudeMSL Elevation,
 	Altitude TransitionAlt, FlightLevel TransitionFL, Aerodrome.AirportUsage Usage, string Name,
-	int FileRecordNumber, int Cycle) : Aerodrome(Client, "HA", Identifier, IATACode, Location, MagneticVariation, Elevation,
-												 TransitionAlt, TransitionFL, Usage, Name, FileRecordNumber, Cycle)
+	int FileRecordNumber, int Cycle) : Aerodrome("HA", Identifier, IATACode, Location, Elevation,
+												 TransitionAlt, TransitionFL, Usage, Name)
 {
 	public static new Heliport Parse(string line)
 	{

@@ -1,4 +1,4 @@
-﻿namespace RouteScript;
+namespace RouteScript;
 
 public class Parser
 {

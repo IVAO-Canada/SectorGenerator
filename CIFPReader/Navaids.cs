@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace CIFPReader;
@@ -6,9 +6,7 @@ namespace CIFPReader;
 #pragma warning disable IDE0059
 
 [JsonConverter(typeof(NavaidJsonSerializer))]
-public abstract record Navaid(string Client, string Header,
-	string Identifier, Coordinate Position, decimal? MagneticVariation, string Name,
-	int FileRecordNumber, int Cycle) : RecordLine(Client, Header, FileRecordNumber, Cycle)
+public abstract record Navaid(string Header, string Identifier, Coordinate Position, decimal? MagneticVariation, string Name) : RecordLine(Header)
 {
 	public static new Navaid? Parse(string line) =>
 		line[5] switch
@@ -116,10 +114,9 @@ public abstract record Navaid(string Client, string Header,
 	}
 }
 
-public record NDB(string Client,
+public record NDB(
 	string Identifier, ushort Channel, (Navaid.ClassFacility Facility, Navaid.ClassMarker Marker, Navaid.ClassPower Power, Navaid.ClassVoice Voice) Class,
-	Coordinate Position, decimal? MagneticVariation, string Name,
-	int FileRecordNumber, int Cycle) : Navaid(Client, "DB", Identifier, Position, MagneticVariation, Name, FileRecordNumber, Cycle)
+	Coordinate Position, decimal? MagneticVariation, string Name) : Navaid("DB", Identifier, Position, MagneticVariation, Name)
 {
 	public static new NDB Parse(string line)
 	{
@@ -159,14 +156,34 @@ public record NDB(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, identifier, channel, @class, position, magVar, name, frn, cycle);
+		return new(identifier, channel, @class, position, magVar, name);
+	}
+
+	public static NDB Parse(TblVhfnavaid line)
+	{
+		string identifier = line.VorIdentifier.TrimEnd();
+		string icaoRegion = line.AreaCode ?? "";
+		ushort channel = (ushort?)line.VorFrequency ?? 0;
+
+		(ClassFacility Facility, ClassMarker Marker, ClassPower Power, ClassVoice Voice) @class =
+			((ClassFacility)line.NavaidClass[0], (ClassMarker)line.NavaidClass[1], (ClassPower)line.NavaidClass[2], line.NavaidClass.Length > 3 ? (ClassVoice)line.NavaidClass[3] : ClassVoice.NoVoice);
+
+		if (@class.Facility is not ClassFacility.VOR and not ClassFacility.TACAN)
+			throw new ArgumentException("Provided input string is not a VOR or TACAN");
+
+		Coordinate position = new(line.VorLatitude!.Value, line.VorLongitude!.Value);
+
+		decimal magVar = -(line.MagneticVariation ?? line.StationDeclination ?? 0m);
+
+		string name = line.VorName?.TrimEnd() ?? "";
+
+		return new(identifier, channel, @class, position, magVar, name);
 	}
 }
 
-public record VOR(string Client,
+public record VOR(
 	string Identifier, decimal Frequency, (Navaid.ClassFacility Facility, Navaid.ClassMarker Marker, Navaid.ClassPower Power, Navaid.ClassVoice Voice) Class,
-	Coordinate Position, decimal? MagneticVariation, AltitudeMSL Elevation, string Name, DME? CollocatedDME,
-	int FileRecordNumber, int Cycle) : Navaid(Client, "DV", Identifier, Position, MagneticVariation, Name, FileRecordNumber, Cycle)
+	Coordinate Position, decimal? MagneticVariation, AltitudeMSL Elevation, string Name, DME? CollocatedDME) : Navaid("DV", Identifier, Position, MagneticVariation, Name)
 {
 	public static new VOR Parse(string line)
 	{
@@ -213,14 +230,41 @@ public record VOR(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, identifier, frequency, @class, position, magVar, elevation, name, collocatedDME, frn, cycle);
+		return new(identifier, frequency, @class, position, magVar, elevation, name, collocatedDME);
+	}
+
+	public static VOR Parse(TblVhfnavaid line)
+	{
+		string identifier = line.VorIdentifier.TrimEnd();
+		string icaoRegion = line.AreaCode ?? "";
+		decimal frequency = line.VorFrequency ?? 0m;
+
+		(ClassFacility Facility, ClassMarker Marker, ClassPower Power, ClassVoice Voice) @class =
+			((ClassFacility)line.NavaidClass[0], (ClassMarker)line.NavaidClass[1], (ClassPower)line.NavaidClass[2], line.NavaidClass.Length > 3 ? (ClassVoice)line.NavaidClass[3] : ClassVoice.NoVoice);
+
+		if (@class.Facility is not ClassFacility.VOR and not ClassFacility.TACAN)
+			throw new ArgumentException("Provided input string is not a VOR or TACAN");
+
+		Coordinate position = new(line.VorLatitude!.Value, line.VorLongitude!.Value);
+
+		DME? collocatedDME = null;
+
+		if (@class.Marker == ClassMarker.DME || @class.Marker == ClassMarker.TACAN)
+			collocatedDME = DME.Parse(line);
+
+		decimal magVar = -(line.MagneticVariation ?? line.StationDeclination ?? 0m);
+
+		AltitudeMSL elevation = new(line.DmeElevation ?? 0);
+
+		string name = line.VorName?.TrimEnd() ?? "";
+
+		return new(identifier, frequency, @class, position, magVar, elevation, name, collocatedDME);
 	}
 }
 
-public record NavaidILS(string Client,
+public record NavaidILS(
 	string Identifier, decimal Frequency, (Navaid.ClassFacility Facility, Navaid.ClassMarker Marker, Navaid.ClassPower Power, Navaid.ClassVoice Voice, bool OnField) Class,
-	Coordinate Position, decimal? MagneticVariation, AltitudeMSL Elevation, string Name, DME CollocatedDME,
-	int FileRecordNumber, int Cycle) : Navaid(Client, "DI", Identifier, Position, MagneticVariation, Name, FileRecordNumber, Cycle)
+	Coordinate Position, decimal? MagneticVariation, AltitudeMSL Elevation, string Name, DME CollocatedDME) : Navaid("DI", Identifier, Position, MagneticVariation, Name)
 {
 	public static new NavaidILS Parse(string line)
 	{
@@ -260,14 +304,37 @@ public record NavaidILS(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, identifier, frequency, @class, collocatedDME.Position, magVar, elevation, name, collocatedDME, frn, cycle);
+		return new(identifier, frequency, @class, collocatedDME.Position, magVar, elevation, name, collocatedDME);
+	}
+	public static NavaidILS Parse(TblVhfnavaid line)
+	{
+		string airport = line.AirportIdentifier ?? "ZZZZ";
+		string airportRegion = line.AreaCode ?? "";
+
+		string identifier = line.Id?.TrimEnd() ?? "IZZZ";
+		string icaoRegion = line.AreaCode ?? "";
+		decimal frequency = line.VorFrequency ?? 0m;
+
+		(ClassFacility Facility, ClassMarker Marker, ClassPower Power, ClassVoice Voice, bool OnField) @class =
+			((ClassFacility)line.NavaidClass[0], (ClassMarker)line.NavaidClass[1], (ClassPower)line.NavaidClass[2], (ClassVoice)line.NavaidClass[3], line.NavaidClass[4] == ' ');
+
+		if (@class.Marker != ClassMarker.Inner)
+			throw new ArgumentException("Provided input string is not an ILS");
+
+		DME collocatedDME = DME.Parse(line);
+
+		decimal magVar = -(line.MagneticVariation ?? line.StationDeclination ?? 0m);
+
+		AltitudeMSL elevation = new(line.DmeElevation ?? 0);
+
+		string name = line.VorName?.TrimEnd() ?? "";
+		return new(identifier, frequency, @class, collocatedDME.Position, magVar, elevation, name, collocatedDME);
 	}
 }
 
-public record DME(string Client,
+public record DME(
 	string Identifier, ushort Channel, (Navaid.ClassFacility Facility, Navaid.ClassMarker Marker, Navaid.ClassPower Power, Navaid.ClassVoice Voice) Class,
-	Coordinate Position, AltitudeMSL Elevation, string Name,
-	int FileRecordNumber, int Cycle) : Navaid(Client, "DD", Identifier, Position, null, Name, FileRecordNumber, Cycle)
+	Coordinate Position, AltitudeMSL Elevation, string Name) : Navaid("DD", Identifier, Position, null, Name)
 {
 	public static new DME Parse(string line)
 	{
@@ -312,14 +379,48 @@ public record DME(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, identifier, channel, @class, position, elevation, name, frn, cycle);
+		return new(identifier, channel, @class, position, elevation, name);
+	}
+
+	public static DME Parse(TblVhfnavaid line)
+	{
+		string icaoRegion = line.AreaCode ?? "";
+		decimal frequency = line.VorFrequency ?? 0m;
+		if (frequency >= 1000)
+			frequency /= 10;
+
+		ushort channel = (ushort)((int)(frequency * 10) switch {
+			>= 1344 and < 1360 => (int)(frequency * 10) - 1344 + 1,
+			>= 1080 and < 1123 => (int)(frequency * 10) - 1080 + 17,
+			>= 1333 and < 1343 => (int)(frequency * 10) - 1333 + 60,
+			>= 1123 and < 1180 => (int)(frequency * 10) - 1123 + 70,
+
+			_ => throw new NotImplementedException()
+		});
+
+		(ClassFacility Facility, ClassMarker Marker, ClassPower Power, ClassVoice Voice) @class =
+			((ClassFacility)line.NavaidClass[0], (ClassMarker)line.NavaidClass[1], (ClassPower)line.NavaidClass[2], line.NavaidClass.Length > 3 ? (ClassVoice)line.NavaidClass[3] : ClassVoice.NoVoice);
+
+		bool bfoCollocated = line.NavaidClass.Length > 4 && line.NavaidClass[4] != ' ';
+
+		if (!new ClassMarker[] { ClassMarker.DME, ClassMarker.TACAN, ClassMarker.MilitaryTACAN, ClassMarker.ILS }.Contains(@class.Marker))
+			throw new ArgumentException("Provided input does not have DME");
+
+		string identifier = line.DmeIdent?.TrimEnd() ?? "";
+		Coordinate position = new(line.DmeLatitude!.Value, line.DmeLongitude!.Value);
+
+		AltitudeMSL elevation = new(line.DmeElevation!.Value);
+
+		string name = line.VorName?.TrimEnd() ?? "";
+
+		return new(identifier, channel, @class, position, elevation, name);
 	}
 }
 
 public record ILS(string Client,
 	string Airport, string Identifier, Runway.RunwayApproachCategory Category, decimal Frequency, string Runway,
 	Coordinate LocalizerPosition, MagneticCourse LocalizerCourse, Coordinate? GlideslopePosition,
-	int FileRecordNumber, int Cycle) : Navaid(Client, "PI", Identifier, LocalizerPosition, LocalizerCourse.Variation, $"{Identifier} ({Airport} - {Runway})", FileRecordNumber, Cycle)
+	int FileRecordNumber, int Cycle) : Navaid("PI", Identifier, LocalizerPosition, LocalizerCourse.Variation, $"{Identifier} ({Airport} - {Runway})")
 {
 	public static new ILS Parse(string line)
 	{

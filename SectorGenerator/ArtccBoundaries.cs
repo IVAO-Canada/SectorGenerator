@@ -1,6 +1,6 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 
-namespace SectorGenerator;
+namespace CIFPReader;
 
 internal static class ArtccBoundaries
 {

@@ -1,4 +1,4 @@
-﻿namespace SectorGenerator;
+namespace CIFPReader;
 
 internal class Gates(string airport, Osm taxiways)
 {

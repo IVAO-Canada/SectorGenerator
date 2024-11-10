@@ -1,98 +1,25 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.IO.Compression;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 
 using static CIFPReader.ProcedureLine;
 
 namespace CIFPReader;
 
-public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Aerodrome> Aerodromes, Dictionary<string, HashSet<ICoordinate>> Fixes, Dictionary<string, HashSet<Navaid>> Navaids, Dictionary<string, HashSet<Airway>> Airways, Dictionary<string, HashSet<Procedure>> Procedures, Dictionary<string, HashSet<Runway>> Runways)
+public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Aerodrome> Aerodromes, Dictionary<string, HashSet<ICoordinate>> Fixes, Dictionary<string, HashSet<Navaid>> Navaids, Dictionary<string, HashSet<Airway>> Airways, Dictionary<string, HashSet<Procedure>> Procedures, Dictionary<string, HashSet<Runway>> Runways, Dictionary<string, (double Latitude, double Longitude)[]> FirBoundaries, Dictionary<string, string[]> FirNeighbours)
 {
-	private CIFP() : this([], [], [], [], [], [], [], []) { }
+	private CIFP() : this([], [], [], [], [], [], [], [], [], []) { }
 
-	public int Cycle => Aerodromes.Values.Max(a => a.Cycle);
-
-	public static CIFP Load(string? directory = null)
+	public CIFP(string airacSqlitePath, string prefix = "") : this()
 	{
-		directory ??= Environment.CurrentDirectory;
+		if (!File.Exists(airacSqlitePath))
+			throw new FileNotFoundException($"Could not locate {airacSqlitePath}. Make sure it exists!");
 
-		string zipPath = Path.Combine(directory, "CIFP.zip"),
-			   cifpPath = Path.Combine(directory, "FAACIFP18"),
-			   outputPath = Path.Combine(directory, "cifp");
-		if (File.Exists(zipPath))
-		{
-			using (ZipArchive archive = ZipFile.OpenRead(zipPath))
-			{
-				var zae = archive.GetEntry("FAACIFP18") ?? throw new FileNotFoundException("ZIP archive doesn't contain FAACIFP18.");
+		AiracContext airac = new(airacSqlitePath);
 
-				zae.ExtractToFile(cifpPath);
-			}
-			File.Delete(zipPath);
-		}
-
-		if (File.Exists(cifpPath))
-		{
-			CIFP retval = new(File.ReadAllLines(cifpPath));
-
-			if (Directory.Exists("cifp"))
-				Directory.Delete("cifp", true);
-
-			retval.Save(directory);
-			File.Delete(cifpPath);
-			return retval;
-		}
-		else if (Directory.Exists(outputPath))
-			return new(
-				JsonSerializer.Deserialize<GridMORA[]>(File.ReadAllText(Path.Combine(outputPath, "mora.json"))) ?? throw new Exception(),
-				JsonSerializer.Deserialize<Airspace[]>(File.ReadAllText(Path.Combine(outputPath, "airspace.json"))) ?? throw new Exception(),
-				new(JsonSerializer.Deserialize<Aerodrome[]>(File.ReadAllText(Path.Combine(outputPath, "aerodrome.json")))?.Select(a => new KeyValuePair<string, Aerodrome>(a.Identifier, a)) ?? throw new Exception()),
-				JsonSerializer.Deserialize<Dictionary<string, HashSet<ICoordinate>>>(File.ReadAllText(Path.Combine(outputPath, "fix.json"))) ?? throw new Exception(),
-				JsonSerializer.Deserialize<Dictionary<string, HashSet<Navaid>>>(File.ReadAllText(Path.Combine(outputPath, "navaid.json"))) ?? throw new Exception(),
-				JsonSerializer.Deserialize<Dictionary<string, HashSet<Airway>>>(File.ReadAllText(Path.Combine(outputPath, "airway.json"))) ?? throw new Exception(),
-				JsonSerializer.Deserialize<Dictionary<string, HashSet<Procedure>>>(File.ReadAllText(Path.Combine(outputPath, "procedure.json"))) ?? throw new Exception(),
-				JsonSerializer.Deserialize<Dictionary<string, HashSet<Runway>>>(File.ReadAllText(Path.Combine(outputPath, "runway.json"))) ?? throw new Exception()
-			);
-		else
-		{
-			HttpClient cli = new();
-			string pageListing = cli.GetStringAsync(@"https://aeronav.faa.gov/Upload_313-d/cifp/").Result;
-#pragma warning disable SYSLIB1045 // Convert to 'GeneratedRegexAttribute'.
-			Regex cifpZip = new(@"CIFP_\d+\.zip");
-#pragma warning restore SYSLIB1045 // Convert to 'GeneratedRegexAttribute'.
-			string currentCifp = cifpZip.Matches(pageListing).Last().Value;
-			byte[] cifpDat = cli.GetByteArrayAsync(@"https://aeronav.faa.gov/Upload_313-d/cifp/" + currentCifp).Result;
-
-			if (!Directory.Exists(Path.GetDirectoryName(zipPath)))
-				Directory.CreateDirectory(Path.GetDirectoryName(zipPath) ?? directory);
-
-			File.WriteAllBytes(zipPath, cifpDat);
-			return Load(directory);
-		}
-	}
-
-	private void Save(string? directory = null)
-	{
-		directory ??= Environment.CurrentDirectory;
-		string outputPath = Path.Combine(directory, "cifp");
-		JsonSerializerOptions opts = new() { WriteIndented = true };
-
-		Directory.CreateDirectory(outputPath);
-		File.WriteAllText(Path.Combine(outputPath, "mora.json"), JsonSerializer.Serialize(MORAs, opts));
-		File.WriteAllText(Path.Combine(outputPath, "airspace.json"), JsonSerializer.Serialize(Airspaces, opts));
-		File.WriteAllText(Path.Combine(outputPath, "aerodrome.json"), JsonSerializer.Serialize(Aerodromes.Values.ToArray(), opts));
-		File.WriteAllText(Path.Combine(outputPath, "fix.json"), JsonSerializer.Serialize(Fixes, opts));
-		File.WriteAllText(Path.Combine(outputPath, "navaid.json"), JsonSerializer.Serialize(Navaids, opts));
-		File.WriteAllText(Path.Combine(outputPath, "airway.json"), JsonSerializer.Serialize(Airways, opts));
-		File.WriteAllText(Path.Combine(outputPath, "procedure.json"), JsonSerializer.Serialize(Procedures, opts));
-		File.WriteAllText(Path.Combine(outputPath, "runway.json"), JsonSerializer.Serialize(Runways, opts));
-	}
-
-	public CIFP(string[] cifpFileLines) : this()
-	{
 		List<GridMORA> moras = [];
 		List<Airspace> airspaces = [];
 		List<SIDLine> sidSteps = [];
@@ -100,126 +27,312 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		List<ApproachLine> iapSteps = [];
 		List<AirwayFixLine> awLines = [];
 
-		RecordLine[] rls = [.. cifpFileLines.SkipWhile(l => l.StartsWith("HDR")).AsParallel().AsOrdered().Select(l => { try { return RecordLine.Parse(l); } catch { return null; } }).Where(rl => rl is not null).Cast<RecordLine>()];
+		TblGridMora[] gridMoras = [.. airac.TblGridMoras];
+		TblControlledAirspace[] controlledAirspaces = [.. airac.TblControlledAirspaces.ToArray().Where(ca => ca.IcaoCode is null || ca.IcaoCode.StartsWith(prefix))];
+		TblAirport[] airports = [.. airac.TblAirports.Where(ap => ap.IcaoCode.StartsWith(prefix))];
+		TblRunway[] runways = [.. airac.TblRunways.Where(rw => rw.AirportIdentifier.StartsWith(prefix))];
+		TblVhfnavaid[] navaids = [.. airac.TblVhfnavaids];
+		TblFirUir[] firBoundaries = [.. airac.TblFirUirs];
+		TblSid[] sids = [.. airac.TblSids.Where(s => s.AirportIdentifier.StartsWith(prefix))];
+		TblStar[] stars = [.. airac.TblStars.Where(s => s.AirportIdentifier.StartsWith(prefix))];
+		TblIap[] iaps = [.. airac.TblIaps.Where(s => s.AirportIdentifier.StartsWith(prefix))];
+		TblEnrouteAirway[] airways = [.. airac.TblEnrouteAirways.Where(f => f.AreaCode == "CAN")];
 
-		for (int lineIndex = 0; lineIndex < rls.Length; ++lineIndex)
-		{
-			switch (rls[lineIndex])
+		Altitude? parseAlt(string? alt) =>
+			alt is null ? null :
+			alt == "GND" ? new AltitudeAGL(0, null) :
+			alt is "UNLTD" or "NOTSP" ? Altitude.MaxValue :
+			alt == "MSL" ? new AltitudeMSL(0) :
+			new AltitudeMSL(alt.StartsWith("FL") ? int.Parse(alt[2..]) * 100 : int.Parse(alt));
+
+		Task.WaitAll(
+			Task.Run(() =>
 			{
-				case GridMORA mora:
-					moras.Add(mora);
-					break;
+				// FIR boundaries
+				foreach (var fir in firBoundaries.GroupBy(b => b.FirUirIdentifier))
+				{
+					List<List<(double Lat, double Lon)>> boundaryRuns = [];
+					int lastSeq = int.MaxValue;
+					foreach (TblFirUir point in fir.Where(i => i.FirUirIndicator is "F" or "U"))
+					{
+						if (point.Seqno < lastSeq)
+							boundaryRuns.Add([]);
 
-				case ControlledAirspace al:
+						boundaryRuns[^1].Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
+						lastSeq = point.Seqno;
+					}
+
+					FirBoundaries.Add(
+						fir.Key,
+						boundaryRuns.Count > 0 ? [.. boundaryRuns.MaxBy(r => r.Count)] : []
+					);
+
+					FirNeighbours.Add(
+						fir.Key,
+						[.. fir.Select(i => i.AdjacentFirIdentifier ?? i.AdjacentUirIdentifier).Distinct().Where(i => i is not null).Cast<string>()]
+					);
+				}
+			}),
+			Task.Run(() =>
+			{
+				// Grid MORAs
+				foreach (TblGridMora gridMora in gridMoras)
+					moras.Add(new(new Coordinate(gridMora.StartingLatitude, gridMora.StartingLongitude), [.. gridMora.GetType().GetProperties().Where(p => p.Name.StartsWith("Mora")).Select(p => new AltitudeMSL((int)p.GetValue(gridMora)! * 100))]));
+			}),
+			Task.Run(() =>
+			{
+				// Controlled Airspaces
+				ControlledAirspace[] rls = [..controlledAirspaces.Select(ca =>
+					new ControlledAirspace(
+						ca.AreaCode ?? "", ca.AirspaceCenter ?? "", Enum.Parse<ControlledAirspace.AirspaceClass>(ca.AirspaceClassification ?? "E"), ca.MultipleCode ?? 'A',
+						ca.Seqno ?? 0, ControlledAirspace.BoundarySegment.Parse(ca),
+						(parseAlt(ca.LowerLimit), parseAlt(ca.UpperLimit)), ca.ControlledAirspaceName ?? "")
+				)];
+
+				for (int lineIndex = 0; lineIndex < rls.Length; ++lineIndex)
+				{
+					ControlledAirspace al = rls[lineIndex];
 					List<ControlledAirspace> segments = [al];
 
-					while (rls[++lineIndex] is ControlledAirspace ca && ca.Center == al.Center && ca.MultiCD == al.MultiCD)
+					while (lineIndex < rls.Length - 1 && rls[++lineIndex] is ControlledAirspace ca && ca.Center == al.Center && ca.MultiCD == al.MultiCD)
 						segments.Add(ca);
+
+					if (lineIndex == rls.Length - 1)
+						break;
 
 					--lineIndex;
 
 					airspaces.Add(new([.. segments]));
-					break;
+				}
+			}),
+			Task.Run(() =>
+			{
+				// Aerodromes
+				foreach (TblAirport ap in airports)
+				{
+					Airport a = new(ap.AirportIdentifier, ap.AirportIdentifier3letter ?? "", ap.IfrCapability == "Y",
+						new Coordinate(ap.AirportRefLatitude, ap.AirportRefLongitude), new AltitudeMSL(ap.Elevation),
+						new AltitudeMSL(ap.TransitionAltitude ?? 180000), new(ap.TransitionLevel ?? 180), Aerodrome.AirportUsage.Public,
+						ap.AirportName ?? ""
+					);
 
-				case RestrictiveAirspace _:
-					continue;
+					Aerodromes.Add(a.Identifier, a);
+					lock (Fixes)
+					{
+						if (Fixes.TryGetValue(a.Identifier, out var fixes))
+							fixes.Add(a.Location);
+						else
+							Fixes.Add(a.Identifier, [a.Location]);
+					}
+				}
+			}),
+			Task.Run(() =>
+			{
+				// Runways
+				foreach (TblRunway runway in runways)
+				{
+					Runway r = new(
+						runway.AirportIdentifier,
+						runway.RunwayIdentifier.StartsWith("RW") ? runway.RunwayIdentifier[2..] : runway.RunwayIdentifier,
+						runway.RunwayLength ?? 0,
+						runway.RunwayWidth ?? 0,
+						new MagneticCourse(runway.RunwayMagneticBearing, runway.RunwayMagneticBearing - runway.RunwayTrueBearing),
+						new Coordinate(runway.RunwayLatitude, runway.RunwayLongitude),
+						new AltitudeMSL(runway.LandingThresholdElevation ?? 0),
+						new AltitudeMSL(runway.ThresholdCrossingHeight ?? 0),
+						runway.LlzIdentifier,
+						(Runway.RunwayApproachCategory?)runway.LlzMlsGlsCategory ?? Runway.RunwayApproachCategory.NoApproach
+					);
 
-				case Navaid nav:
+					lock (Fixes)
+					{
+						if (Fixes.TryGetValue("RW" + r.Identifier, out var s1))
+							s1.Add(r.Endpoint);
+						else
+							Fixes.Add("RW" + r.Identifier, [r.Endpoint]);
+						if (Fixes.TryGetValue(r.Airport + "/" + r.Identifier, out var s2))
+							s2.Add(r.Endpoint);
+						else
+							Fixes.Add(r.Airport + "/" + r.Identifier, [r.Endpoint]);
+					}
+
+					if (Runways.TryGetValue(r.Airport, out var s3))
+						s3.Add(r);
+					else
+						Runways.Add(r.Airport, [r]);
+				}
+			}),
+			Task.Run(() =>
+			{
+				// Navaids
+				foreach (TblVhfnavaid vhfNav in navaids)
+				{
+					Navaid nav =
+						vhfNav.AirportIdentifier is not null ? NavaidILS.Parse(vhfNav) :
+						vhfNav.VorIdentifier is not null ? (vhfNav.VorIdentifier.Length == 2 ? NDB.Parse(vhfNav) : VOR.Parse(vhfNav)) :
+						DME.Parse(vhfNav);
+
 					if (!Navaids.ContainsKey(nav.Identifier))
 						Navaids.Add(nav.Identifier, []);
 					Navaids[nav.Identifier].Add(nav);
 
-					if (!Fixes.ContainsKey(nav.Identifier))
-						Fixes.Add(nav.Identifier, []);
-					Fixes[nav.Identifier].Add(nav.Position);
-					break;
+					lock (Fixes)
+					{
+						if (Fixes.TryGetValue(nav.Identifier, out var fixes))
+							fixes.Add(nav.Position);
+						else
+							Fixes.Add(nav.Identifier, [nav.Position]);
+					}
+				}
+			}),
+			Task.Run(() =>
+			{
+				// SIDs
 
-				case SIDLine sl:
-					sidSteps.Add(sl);
+				sidSteps.AddRange(sids.Select(sl =>
+				{
+					(PathTermination pathTerm, IProcedureEndpoint? ep, IProcedureVia? via, UnresolvedWaypoint? referencePoint) = GetPathSegment($"{new string(' ', 47)}{sl.PathTermination ?? "IF",2} {sl.RecommandedNavaid ?? "",4}  {(sl.ArcRadius ?? 0) * 1000:000000}{(sl.Theta ?? 0) * 10:0000}{(sl.Rho ?? 0) * 10:0000}{(sl.MagneticCourse ?? 0) * 10:0000}{(sl.DistanceTime == "T" ? "T" : "")}{((sl.RouteDistanceHoldingDistanceTime ?? 0) * 10).ToString(sl.DistanceTime == "T" ? "000" : "0000")}{"",29}{sl.CenterWaypoint ?? "",5}    ");
 
-					while (rls[++lineIndex] is SIDLine s)
-						sidSteps.Add(s);
+					return new SIDLine(
+						sl.AirportIdentifier,
+						sl.ProcedureIdentifier,
+						(SIDLine.SIDRouteType?)sl.RouteType ?? SIDLine.SIDRouteType.CommonRoute,
+						sl.TransitionIdentifier ?? "ALL",
+						pathTerm,
+						ep ?? (sl.WaypointIdentifier is null ? null : new NamedCoordinate(sl.WaypointIdentifier!, new(sl.WaypointLatitude!.Value, sl.WaypointLongitude!.Value))),
+						via,
+						sl.AltitudeDescription switch {
+							null => AltitudeRestriction.Unrestricted,
+							'B' => new(new AltitudeMSL(sl.Altitude2!.Value), new AltitudeMSL(sl.Altitude1!.Value)),
+							'+' => new(new AltitudeMSL(sl.Altitude1!.Value), null),
+							'-' => new(null, new AltitudeMSL(sl.Altitude1!.Value)),
+							_ => throw new NotImplementedException()
+						},
+						sl.SpeedLimitDescription switch {
+							null => SpeedRestriction.Unrestricted,
+							'+' => new(sl.SpeedLimit!.Value, null),
+							'-' => new(null, sl.SpeedLimit!.Value),
+							_ => throw new NotImplementedException()
+						},
+						sl.RecommandedNavaid is null ? null : new NamedCoordinate(sl.RecommandedNavaid, new(sl.RecommandedNavaidLatitude!.Value, sl.RecommandedNavaidLongitude!.Value))
+					);
+				}));
+			}),
+			Task.Run(() =>
+			{
+				// STARs
 
-					--lineIndex;
-					break;
+				starSteps.AddRange(stars.Select(sl =>
+				{
+					(PathTermination pathTerm, IProcedureEndpoint? ep, IProcedureVia? via, UnresolvedWaypoint? referencePoint) = GetPathSegment($"{new string(' ', 47)}{sl.PathTermination ?? "IF",2} {sl.RecommandedNavaid ?? "",4}  {(sl.ArcRadius ?? 0) * 1000:000000}{(sl.Theta ?? 0) * 10:0000}{(sl.Rho ?? 0) * 10:0000}{(sl.MagneticCourse ?? 0) * 10:0000}{(sl.DistanceTime == "T" ? "T" : "")}{((sl.RouteDistanceHoldingDistanceTime ?? 0) * 10).ToString(sl.DistanceTime == "T" ? "000" : "0000")}{"",29}{sl.CenterWaypoint ?? "",5}    ");
 
-				case STARLine sl:
-					starSteps.Add(sl);
+					return new STARLine(
+						sl.AirportIdentifier,
+						sl.ProcedureIdentifier,
+						(STARLine.STARRouteType?)sl.RouteType ?? STARLine.STARRouteType.CommonRoute,
+						sl.TransitionIdentifier ?? "ALL",
+						sl.PathTermination == "IF",
+						pathTerm,
+						ep ?? (sl.WaypointIdentifier is null ? null : new NamedCoordinate(sl.WaypointIdentifier!, new(sl.WaypointLatitude!.Value, sl.WaypointLongitude!.Value))),
+						via,
+						sl.AltitudeDescription switch {
+							null => AltitudeRestriction.Unrestricted,
+							'B' => new(new AltitudeMSL(sl.Altitude2!.Value), new AltitudeMSL(sl.Altitude1!.Value)),
+							'+' => new(new AltitudeMSL(sl.Altitude1!.Value), null),
+							'-' => new(null, new AltitudeMSL(sl.Altitude1!.Value)),
+							_ => throw new NotImplementedException()
+						},
+						sl.SpeedLimitDescription switch {
+							null => SpeedRestriction.Unrestricted,
+							'+' => new(sl.SpeedLimit!.Value, null),
+							'-' => new(null, sl.SpeedLimit!.Value),
+							_ => throw new NotImplementedException()
+						},
+						sl.RecommandedNavaid is null ? null : new NamedCoordinate(sl.RecommandedNavaid, new(sl.RecommandedNavaidLatitude!.Value, sl.RecommandedNavaidLongitude!.Value))
+					);
+				}));
+			}),
+			Task.Run(() =>
+			{
+				// IAPs
 
-					while (rls[++lineIndex] is STARLine s)
-						starSteps.Add(s);
+				iapSteps.AddRange(iaps.Select(sl =>
+				{
+					(PathTermination pathTerm, IProcedureEndpoint? ep, IProcedureVia? via, UnresolvedWaypoint? referencePoint) = GetPathSegment($"{new string(' ', 47)}{sl.PathTermination ?? "IF",2} {sl.RecommandedNavaid ?? "",4}  {(sl.ArcRadius ?? 0) * 1000:000000}{(sl.Theta ?? 0) * 10:0000}{(sl.Rho ?? 0) * 10:0000}{(sl.MagneticCourse ?? 0) * 10:0000}{(sl.DistanceTime == "T" ? "T" : "")}{((sl.RouteDistanceHoldingDistanceTime ?? 0) * 10).ToString(sl.DistanceTime == "T" ? "000" : "0000")}{"",29}{sl.CenterWaypoint ?? "",5}    ");
+					NamedCoordinate? fix = sl.WaypointIdentifier is null ? null : new NamedCoordinate(sl.WaypointIdentifier!, new(sl.WaypointLatitude!.Value, sl.WaypointLongitude!.Value));
+					if (via is Racetrack rt)
+						via = rt with { Point = fix };
+					else if (via is Arc a && a.Centerpoint is null && a.Centerwaypoint is UnresolvedWaypoint uwp && sl.CenterWaypointLatitude is not null)
+						via = a with { Centerpoint = new Coordinate(sl.CenterWaypointLatitude!.Value, sl.CenterWaypointLongitude!.Value) };
 
-					--lineIndex;
-					break;
+					if (ep is UnresolvedDistance ud && sl.RecommandedNavaidLatitude is not null)
+						ep = new Distance(new NamedCoordinate(sl.RecommandedNavaid!, new(sl.RecommandedNavaidLatitude!.Value, sl.RecommandedNavaidLongitude!.Value)), ud.NMI);
+					else if (ep is UnresolvedRadial or UnresolvedWaypoint)
+						Debugger.Break();
 
-				case ApproachLine al:
-					iapSteps.Add(al);
+					return new ApproachLine(
+						sl.AirportIdentifier,
+						sl.ProcedureIdentifier,
+						(ApproachLine.ApproachRouteType?)sl.RouteType ?? ApproachLine.ApproachRouteType.Transition,
+						sl.TransitionIdentifier ?? "ALL",
+						pathTerm,
+						ep ?? fix,
+						via,
+						sl.RecommandedNavaid,
+						sl.AltitudeDescription switch {
+							null => AltitudeRestriction.Unrestricted,
+							'B' or 'J' or 'I' or 'H' => new(new AltitudeMSL(sl.Altitude2!.Value), new AltitudeMSL(sl.Altitude1!.Value)),
+							'+' => new(new AltitudeMSL(sl.Altitude1!.Value), null),
+							'-' => new(null, new AltitudeMSL(sl.Altitude1!.Value)),
+							_ => throw new NotImplementedException()
+						},
+						sl.SpeedLimitDescription switch {
+							null => SpeedRestriction.Unrestricted,
+							'+' => new(sl.SpeedLimit!.Value, null),
+							'-' => new(null, sl.SpeedLimit!.Value),
+							_ => throw new NotImplementedException()
+						},
+						sl.RecommandedNavaid is null ? null : new NamedCoordinate(sl.RecommandedNavaid, new(sl.RecommandedNavaidLatitude!.Value, sl.RecommandedNavaidLongitude!.Value))
+					);
+				}));
+			}),
+			Task.Run(() =>
+			{
+				// Waypoints
 
-					while (rls[++lineIndex] is ApproachLine s)
-						iapSteps.Add(s);
+				//			if (!Fixes.ContainsKey(wp.Identifier))
+				//				Fixes.Add(wp.Identifier, []);
+				//			Fixes[wp.Identifier].Add(wp.Position);
+				//			break;
 
-					--lineIndex;
-					break;
+				//		case PathPoint pp:
+				//			if (!Fixes.ContainsKey(pp.Runway))
+				//				Fixes.Add(pp.Runway, []);
+				//			if (!Fixes.ContainsKey(pp.Airport + "/" + pp.Runway))
+				//				Fixes.Add(pp.Airport + "/" + pp.Runway, []);
 
-				case Waypoint wp:
-					if (!Fixes.ContainsKey(wp.Identifier))
-						Fixes.Add(wp.Identifier, []);
-					Fixes[wp.Identifier].Add(wp.Position);
-					break;
+				//			Fixes[pp.Runway].Add(pp.Position);
+				//			Fixes[pp.Airport + "/" + pp.Runway].Add(pp.Position);
+				//			break;
+			}),
+			Task.Run(() =>
+			{
+				// Airways
 
-				case PathPoint pp:
-					if (!Fixes.ContainsKey(pp.Runway))
-						Fixes.Add(pp.Runway, []);
-					if (!Fixes.ContainsKey(pp.Airport + "/" + pp.Runway))
-						Fixes.Add(pp.Airport + "/" + pp.Runway, []);
-
-					Fixes[pp.Runway].Add(pp.Position);
-					Fixes[pp.Airport + "/" + pp.Runway].Add(pp.Position);
-					break;
-
-				case AirwayFixLine af:
-					awLines.Add(af);
-
-					for (int seqNum = af.SequenceNumber;
-						rls[++lineIndex] is AirwayFixLine f && f.AirwayIdentifier == af.AirwayIdentifier && f.SequenceNumber > seqNum;
-						seqNum = f.SequenceNumber)
-						awLines.Add(f);
-
-					--lineIndex;
-					break;
-
-				case Aerodrome a:
-					if (a is Airport)
-						Aerodromes.Add(a.Identifier, a);
-					if (!Fixes.ContainsKey(a.Identifier))
-						Fixes.Add(a.Identifier, []);
-					Fixes[a.Identifier].Add(a.Location);
-					break;
-
-				case Runway r:
-					if (!Fixes.ContainsKey("RW" + r.Identifier))
-						Fixes.Add("RW" + r.Identifier, []);
-					if (!Fixes.ContainsKey(r.Airport + "/" + r.Identifier))
-						Fixes.Add(r.Airport + "/" + r.Identifier, []);
-					Fixes["RW" + r.Identifier].Add(r.Endpoint);
-					Fixes[r.Airport + "/" + r.Identifier].Add(r.Endpoint);
-
-					if (!Runways.ContainsKey(r.Airport))
-						Runways.Add(r.Airport, []);
-
-					Runways[r.Airport].Add(r);
-					break;
-
-				case AirportMSA _:
-					continue;
-
-				case null:
-					continue;
-
-				default:
-					throw new NotImplementedException();
-			}
-		}
+				awLines.AddRange(airways.Select(aw => new AirwayFixLine(
+					aw.RouteIdentifier,
+					aw.Seqno,
+					new NamedCoordinate(aw.WaypointIdentifier, new(aw.WaypointLatitude, aw.WaypointLongitude)),
+					aw.RouteType == 'R',
+					(AirwayFixLine.RTLevel)aw.Flightlevel,
+					aw.OutboundCourse is decimal obc ? new(obc, null) : null,
+					aw.InboundDistance,
+					aw.InboundCourse is decimal ibc ? new(ibc, null) : null,
+					new(aw.MinimumAltitude1 is int inma1 ? new AltitudeMSL(inma1) : null, aw.MaximumAltitude is int inma ? new AltitudeMSL(inma) : null),
+					new(aw.MinimumAltitude1 is int outma1 ? new AltitudeMSL(outma1) : null, aw.MaximumAltitude is int outma ? new AltitudeMSL(outma) : null)
+				)));
+			})
+		);
 
 		ConcurrentDictionary<string, HashSet<Procedure>> procs = [];
 
@@ -234,12 +347,16 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 				{
 					if (awAccumulator.Count != 0)
 					{
-						Airway aw = new(procName, [.. awAccumulator], Fixes);
+						if (awAccumulator.Count > 1)
+						{
+							Airway aw = new(procName, [.. awAccumulator], Fixes);
 
-						if (!Airways.ContainsKey(aw.Identifier))
-							Airways.Add(aw.Identifier, []);
+							if (!Airways.ContainsKey(aw.Identifier))
+								Airways.Add(aw.Identifier, []);
 
-						Airways[aw.Identifier].Add(aw);
+							Airways[aw.Identifier].Add(aw);
+						}
+
 						awAccumulator.Clear();
 					}
 
@@ -364,9 +481,9 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 	}
 }
 
-public record RecordLine(string Client, string Header, int FileRecordNumber, int Cycle)
+public record RecordLine(string Header)
 {
-	public RecordLine() : this("", "", 0, 0) { }
+	public RecordLine() : this("") { }
 
 	public static RecordLine? Parse(string line) =>
 		line[4] switch {
@@ -977,7 +1094,7 @@ public class UnresolvedWaypoint(string name) : IProcedureEndpoint
 	protected Coordinate? Position { get; init; }
 
 	public NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes) => Resolve(fixes, new Coordinate(0, 0));
-	public NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, Coordinate? reference = null) =>
+	public NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, ICoordinate? reference = null) =>
 		Position?.Name(Name) ?? fixes.Concretize(Name, refCoord: reference);
 	public NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, UnresolvedWaypoint? reference = null) =>
 		Position?.Name(Name) ?? fixes.Concretize(Name, refString: reference?.Name);
@@ -1002,7 +1119,7 @@ public class UnresolvedWaypoint(string name) : IProcedureEndpoint
 
 public static class Extensions
 {
-	public static bool TryConcretize(this Dictionary<string, HashSet<ICoordinate>> fixes, string wp, [NotNullWhen(true)] out NamedCoordinate? coord, Coordinate? refCoord = null, string? refString = null)
+	public static bool TryConcretize(this Dictionary<string, HashSet<ICoordinate>> fixes, string wp, [NotNullWhen(true)] out NamedCoordinate? coord, ICoordinate? refCoord = null, string? refString = null)
 	{
 		if (!fixes.TryGetValue(wp, out HashSet<ICoordinate>? value))
 		{
@@ -1023,7 +1140,7 @@ public static class Extensions
 
 		if (refCoord is not null)
 		{
-			coord = value.MinBy(wp => wp.GetCoordinate().DistanceTo(refCoord.Value)) switch {
+			coord = value.MinBy(wp => wp.GetCoordinate().DistanceTo(refCoord is Coordinate c ? c : ((NamedCoordinate?)refCoord)!.Value.Position)) switch {
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null
@@ -1050,7 +1167,7 @@ public static class Extensions
 	}
 
 
-	public static NamedCoordinate Concretize(this Dictionary<string, HashSet<ICoordinate>> fixes, string wp, Coordinate? refCoord = null, string? refString = null)
+	public static NamedCoordinate Concretize(this Dictionary<string, HashSet<ICoordinate>> fixes, string wp, ICoordinate? refCoord = null, string? refString = null)
 	{
 		if (TryConcretize(fixes, wp, out var res, refCoord, refString))
 			return res.Value;
@@ -1081,11 +1198,4 @@ public static class Extensions
 
 	public static (Coordinate Reference, decimal Variation) GetLocalMagneticVariation(this Dictionary<string, HashSet<Navaid>> navaids, Coordinate refCoord) =>
 		navaids.Values.SelectMany(ns => ns).OrderBy(na => refCoord.DistanceTo(na.Position)).Where(n => n.MagneticVariation is not null).Select(n => (n.Position, n.MagneticVariation!.Value)).First();
-
-	public static (ICoordinate Reference, decimal Variation) GetLocalMagneticVariation(this Dictionary<string, Aerodrome> aerodromes, Coordinate refCoord) =>
-		aerodromes.Values.OrderBy(a => refCoord.DistanceTo(a.Location.GetCoordinate())).First() switch {
-			Airport ap => (ap.Location, ap.MagneticVariation),
-			Heliport hp => (hp.Location, hp.MagneticVariation),
-			_ => throw new NotImplementedException()
-		};
 }

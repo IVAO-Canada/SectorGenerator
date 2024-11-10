@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -141,7 +141,7 @@ public class SID : Procedure
 		{
 			MagneticCourse fixMagnetic(MagneticCourse mc) =>
 				mc with {
-					Variation = aerodromes.GetLocalMagneticVariation(
+					Variation = navaids.GetLocalMagneticVariation(
 							(line.Endpoint, referencePoint) switch {
 								(ICoordinate c, _) => c.GetCoordinate(),
 								(_, null) => throw new Exception("Unable to pin magvar for SID."),
@@ -191,7 +191,7 @@ public class SID : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+						rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					runwayTransitions.Add(lineHead.Transition, [.. rt]);
 					break;
@@ -203,7 +203,7 @@ public class SID : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+						cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					commonRoute = [.. cr];
 					break;
@@ -216,7 +216,7 @@ public class SID : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						et.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes), line.SpeedRestriction, line.AltitudeRestriction));
+						et.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					enrouteTransitions.Add(lineHead.Transition, [.. et]);
 					break;
@@ -239,7 +239,7 @@ public class SID : Procedure
 			{
 				lastReturned = new(PathTermination.UntilCrossing | PathTermination.Direct, new UnresolvedWaypoint(refFix).Resolve(fixes, Airport is null ? null : new UnresolvedWaypoint(Airport)), null, null, SpeedRestriction.Unrestricted, AltitudeRestriction.Unrestricted);
 			}
-			catch (Exception aex) { }
+			catch (Exception) { }
 
 			if (lastReturned is not null)
 				yield return lastReturned;
@@ -490,7 +490,7 @@ public class STAR : Procedure
 		{
 			MagneticCourse fixMagnetic(MagneticCourse mc) =>
 				mc with {
-					Variation = aerodromes.GetLocalMagneticVariation(
+					Variation = navaids.GetLocalMagneticVariation(
 							(line.Endpoint, referencePoint) switch {
 								(ICoordinate c, _) => c.GetCoordinate(),
 								(_, null) => throw new Exception("Unable to pin magvar for SID."),
@@ -539,7 +539,7 @@ public class STAR : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+						rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					runwayTransitions.Add(lineHead.Transition, [.. rt]);
 					break;
@@ -551,7 +551,7 @@ public class STAR : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+						cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					commonRoute = [.. cr];
 					break;
@@ -563,7 +563,7 @@ public class STAR : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						et.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+						et.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					enrouteTransitions.Add(lineHead.Transition, [.. et]);
 					break;
@@ -596,7 +596,8 @@ public class STAR : Procedure
 
 		foreach (var outboundTransition in runwayTransitions.Values)
 		{
-			yield return new(PathTermination.UntilCrossing | PathTermination.Direct, lastReturned!.Endpoint, null, null, SpeedRestriction.Unrestricted, AltitudeRestriction.Unrestricted);
+			if (lastReturned is not null)
+				yield return new(PathTermination.UntilCrossing | PathTermination.Direct, lastReturned!.Endpoint, null, null, SpeedRestriction.Unrestricted, AltitudeRestriction.Unrestricted);
 
 			foreach (var instr in outboundTransition)
 				yield return instr;
@@ -819,8 +820,7 @@ public class Approach : Procedure
 					var =
 value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is ICoordinate c ? c : throw new Exception("Unable to pin magvar for IAP."))).GetCoordinate()))
 					   .Select(na =>
-						   na switch
-						   {
+						   na switch {
 							   VOR v => v.MagneticVariation,
 							   NavaidILS ni => ni.MagneticVariation,
 							   ILS i => i.LocalizerCourse.Variation,
@@ -832,7 +832,7 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 
 				return mc with {
 					Variation = var ??
-						aerodromes.GetLocalMagneticVariation(
+						navaids.GetLocalMagneticVariation(
 							(line.Endpoint, referencePoint) switch {
 								(ICoordinate c, _) => c.GetCoordinate(),
 								(_, null) => throw new Exception("Unable to pin magvar for IAP."),
@@ -850,7 +850,7 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 
 			if (line.Via is Arc a)
 			{
-				if (a.Centerwaypoint is UnresolvedWaypoint uwap)
+				if (a.Centerwaypoint is UnresolvedWaypoint uwap && a.Centerpoint is null)
 					a = a with { Centerpoint = uwap.Resolve(fixes, referencePoint?.GetCoordinate()) };
 				if (a.ArcTo.Variation is null)
 					a = a with { ArcTo = fixMagnetic(a.ArcTo) };
@@ -886,12 +886,12 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 						{
 							var line = fix(lines[linectr]);
 
-							rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+							rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
 						}
 						catch (Exception aex)
 						{
 							// Fix not in DB. FAA screwed up.
-							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex.Message} Please call the FAA at +1 (800) 638-8972 to report the discrepancy.");
+							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex.Message}");
 						}
 					}
 					transitions.Add(lineHead.Transition, [.. rt]);
@@ -905,12 +905,12 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 						{
 							var line = fix(lines[linectr]);
 
-							cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
+							cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
 						}
 						catch (Exception aex)
 						{
 							// Fix not in DB. FAA screwed up.
-							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex.Message} Please call the FAA at +1 (800) 638-8972 to report the discrepancy.");
+							Console.Error.WriteLine($"{lines[linectr].Name} @ {lines[linectr].Airport}: {aex.Message}");
 						}
 					}
 					commonRoute = [.. cr];

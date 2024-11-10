@@ -1,9 +1,7 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using System.Linq;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using static CIFPReader.Airspace;
 using static CIFPReader.ControlledAirspace;
 
 namespace CIFPReader;
@@ -109,7 +107,6 @@ public class Airspace
 		{
 			internal struct SerializableControlledAirspace
 			{
-				public string Client { get; set; }
 				public string Region { get; set; }
 				public string Center { get; set; }
 				public AirspaceClass ASClass { get; set; }
@@ -123,13 +120,12 @@ public class Airspace
 				public int Cycle { get; set; }
 
 				public ControlledAirspace ToControlledAirspace() => new(
-					Client, Region, Center, ASClass, MultiCD, SequenceNumber,
-					BoundarySegment.Parse(Boundary), (LowerVerticalBounds, UpperVerticalBounds), Name, FileRecordNumber, Cycle
+					Region, Center, ASClass, MultiCD, SequenceNumber,
+					BoundarySegment.Parse(Boundary), (LowerVerticalBounds, UpperVerticalBounds), Name
 				);
 
 				public SerializableControlledAirspace(ControlledAirspace ca)
 				{
-					Client = ca.Client;
 					Region = ca.Region;
 					Center = ca.Center;
 					ASClass = ca.ASClass;
@@ -138,8 +134,6 @@ public class Airspace
 					Boundary = ca.Boundary.ToString();
 					(LowerVerticalBounds, UpperVerticalBounds) = ca.VerticalBounds;
 					Name = ca.Name;
-					FileRecordNumber = ca.FileRecordNumber;
-					Cycle = ca.Cycle;
 				}
 			}
 
@@ -216,8 +210,8 @@ public class Airspace
 	{
 		protected BoundaryCircle Boundary => (BoundaryCircle)Segments.Single().Boundary;
 
-		public CircularSegmentRegion(ControlledAirspace segment) : base(new[] { segment }) { }
-		private CircularSegmentRegion(BoundaryCircle circle) : base(new[] { new ControlledAirspace("", "", "", AirspaceClass.A, 'A', 0, circle, (null, null), "", 0, 0) }) { }
+		public CircularSegmentRegion(ControlledAirspace segment) : base([segment]) { }
+		private CircularSegmentRegion(BoundaryCircle circle) : base([new ControlledAirspace("", "", AirspaceClass.A, 'A', 0, circle, (null, null), "")]) { }
 
 		public override bool Contains(Coordinate point, AltitudeMSL altitude) =>
 			Boundary.Centerpoint.GetCoordinate().DistanceTo(point) <= Boundary.Radius && CheckAltitude(altitude);
@@ -302,8 +296,8 @@ public class Airspace
 				BoundarySegment next = boundaries[(cntr + 1) % boundaries.Length];
 
 				(TrueCourse? tB, decimal tD) = arc.ArcOrigin.GetCoordinate().GetBearingDistance(next.Vertex);
-				if (Math.Abs(tD - arc.ArcDistance) > 0.25m)
-					throw new ArgumentException("Endpoint is more than .25nmi off of arc.");
+				if (Math.Abs(tD - arc.ArcDistance) > 1m)
+					throw new ArgumentException("Endpoint is more than 1nmi off of arc.");
 
 				tB ??= new(360);
 
@@ -548,9 +542,9 @@ public class Airspace
 		protected readonly Coordinate[] _verticies;
 
 		public LineSegmentRegion(IEnumerable<ControlledAirspace> segments) : base(segments) =>
-			_verticies = segments.Select(seg => seg.Boundary.Vertex).ToArray();
+			_verticies = [..segments.Select(seg => seg.Boundary.Vertex)];
 
-		private LineSegmentRegion(Coordinate[] verticies) : base(Array.Empty<ControlledAirspace>()) => _verticies = verticies;
+		private LineSegmentRegion(Coordinate[] verticies) : base([]) => _verticies = verticies;
 
 		public override bool Contains(Coordinate point, AltitudeMSL altitude)
 		{
@@ -769,31 +763,11 @@ public class Airspace
 	}
 }
 
-public record GridMORA(ICoordinate StartPos, Altitude?[] MORA, int FileRecordNumber, int Cycle) : RecordLine(new string(' ', 3), "AS", FileRecordNumber, Cycle)
-{
-	public static new GridMORA Parse(string line)
-	{
-		Check(line, 0, 13, "S   AS       ");
+public record GridMORA(ICoordinate StartPos, Altitude?[] MORA) : RecordLine("AS");
 
-		Coordinate startPos = new(line[13..20]);
-		List<FlightLevel?> morae = new();
-
-		Check(line, 20, 30, new string(' ', 10));
-
-		for (int fcharpos = 30; fcharpos < 120; fcharpos += 3)
-		{
-			string mora = line[fcharpos..(fcharpos + 3)];
-			morae.Add(mora == "UNK" ? null : new FlightLevel(int.Parse(mora)));
-		}
-
-		return new(startPos, morae.ToArray(), int.Parse(line[123..128]), int.Parse(line[128..132]));
-	}
-}
-
-public record ControlledAirspace(string Client,
+public record ControlledAirspace(
 		string Region, string Center, AirspaceClass ASClass, char MultiCD, uint SequenceNumber,
-		BoundarySegment Boundary, (Altitude? Lower, Altitude? Upper) VerticalBounds, string Name,
-		int FileRecordNumber, int Cycle) : RecordLine(Client, "UC", FileRecordNumber, Cycle)
+		BoundarySegment Boundary, (Altitude? Lower, Altitude? Upper) VerticalBounds, string Name) : RecordLine("UC")
 {
 
 	public static new ControlledAirspace Parse(string line)
@@ -829,7 +803,7 @@ public record ControlledAirspace(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, region, center, airspaceClass, multiCD, seqNumber, boundary, (lowerLimit, upperLimit), name, frn, cycle);
+		return new(region, center, airspaceClass, multiCD, seqNumber, boundary, (lowerLimit, upperLimit), name);
 	}
 
 	public static bool TryParse(string line, [NotNullWhen(true)] out ControlledAirspace? result)
@@ -864,11 +838,14 @@ public record ControlledAirspace(string Client,
 		C,
 		D,
 		E,
-		G = 'G'
+		F,
+		G
 	}
 
 	private static BoundaryViaType GetBoundaryViaType(string boundaryVia)
 	{
+		boundaryVia = boundaryVia.PadRight(2);
+
 		if (boundaryVia.Length != 2)
 			throw new ArgumentException("Boundary Via type must be two characters.");
 
@@ -924,6 +901,15 @@ public record ControlledAirspace(string Client,
 				_ => throw new NotImplementedException()
 			};
 
+		public static BoundarySegment Parse(TblControlledAirspace data) =>
+			(BoundaryViaType)((int)GetBoundaryViaType(data.BoundaryVia ?? "H") & 0b0111) switch {
+				BoundaryViaType.ClockwiseArc or BoundaryViaType.CounterClockwiseArc => BoundaryArc.Parse(data),
+				BoundaryViaType.Circle => BoundaryCircle.Parse(data),
+				BoundaryViaType.GreatCircle => BoundaryLine.Parse(data),
+				BoundaryViaType.RhumbLine => BoundaryEuclidean.Parse(data),
+				_ => throw new NotImplementedException()
+			};
+
 		public abstract override string ToString();
 	}
 
@@ -944,6 +930,21 @@ public record ControlledAirspace(string Client,
 			return new(GetBoundaryViaType(data[0..2]), arcOriginPoint, distance, bearing, arcFromPoint);
 		}
 
+		public static new BoundaryArc Parse(TblControlledAirspace data)
+		{
+			Coordinate arcFromPoint = new(data.Latitude!.Value, data.Longitude!.Value);
+			Coordinate arcOriginPoint = new(data.ArcOriginLatitude!.Value, data.ArcOriginLongitude!.Value);
+			TrueCourse bearing = new(data.ArcBearing!.Value);
+			decimal distance = data.ArcDistance!.Value;
+			Coordinate extrapPoint = arcOriginPoint.FixRadialDistance(bearing, distance);
+
+			decimal tolerance = Math.Max(0.01m * distance, 0.1m);
+			if (arcFromPoint.DistanceTo(extrapPoint) > tolerance)
+				throw new ArgumentException("Arc point doesn't line up with fix/radial/distance from origin." + $" {arcFromPoint.DMS} -> {extrapPoint.DMS} > {tolerance: #0.0#}nmi");
+
+			return new(GetBoundaryViaType(data.BoundaryVia), arcOriginPoint, distance, bearing, arcFromPoint);
+		}
+
 		public override string ToString() =>
 			$"{GetBoundaryViaTypeCode(BoundaryVia)}{ArcVertex.GetCoordinate().DMSLeadingDirections.PadRight(21 - 2)}{ArcOrigin.GetCoordinate().DMSLeadingDirections.PadRight(21 - 2)}{(int)(ArcDistance * 10):0000}{(int)(ArcBearing.Degrees * 10):0000}";
 	}
@@ -958,6 +959,18 @@ public record ControlledAirspace(string Client,
 
 			Coordinate center = new(data[21..40]);
 			decimal radius = decimal.Parse(data[40..44]) / 10;
+
+			return new(bvt, center, radius);
+		}
+
+		public static new BoundaryCircle Parse(TblControlledAirspace data)
+		{
+			BoundaryViaType bvt = GetBoundaryViaType(data.BoundaryVia);
+			if (!bvt.HasFlag(BoundaryViaType.Circle))
+				throw new ArgumentException("Not a circle!");
+
+			Coordinate center = new(data.ArcOriginLatitude!.Value, data.ArcOriginLongitude!.Value);
+			decimal radius = data.ArcDistance!.Value;
 
 			return new(bvt, center, radius);
 		}
@@ -977,6 +990,15 @@ public record ControlledAirspace(string Client,
 			return new(bvt, new Coordinate(data[2..21]));
 		}
 
+		public static new BoundaryLine Parse(TblControlledAirspace data)
+		{
+			BoundaryViaType bvt = GetBoundaryViaType(data.BoundaryVia);
+			if (!bvt.HasFlag(BoundaryViaType.GreatCircle))
+				throw new ArgumentException("Not a segment along a great circle!");
+
+			return new(bvt, new Coordinate(data.Latitude!.Value, data.Longitude!.Value));
+		}
+
 		public override string ToString() =>
 			$"{GetBoundaryViaTypeCode(BoundaryVia)}{Vertex.GetCoordinate().DMSLeadingDirections.PadRight(21 - 2)}";
 	}
@@ -992,14 +1014,21 @@ public record ControlledAirspace(string Client,
 			return new(bvt, new(data[2..21]));
 		}
 
+		public static new BoundaryEuclidean Parse(TblControlledAirspace data)
+		{
+			BoundaryViaType bvt = GetBoundaryViaType(data.BoundaryVia);
+			if (!bvt.HasFlag(BoundaryViaType.RhumbLine))
+				throw new ArgumentException("Not a rhumb line!");
+
+			return new(bvt, new(data.Latitude!.Value, data.Longitude!.Value));
+		}
+
 		public override string ToString() =>
-			$"{GetBoundaryViaTypeCode(BoundaryVia)}{Vertex.GetCoordinate().DMSLeadingDirections.PadRight(21 - 2)}";
+			$"{GetBoundaryViaTypeCode(BoundaryVia)}{Vertex.GetCoordinate().DMSLeadingDirections,-(21 - 2)}";
 	}
 }
 
-public record AirportMSA(string Client,
-		string Airport, string Fix, char MultiCode, AirportMSA.MSASector[] Sectors,
-		int FileRecordNumber, int Cycle) : RecordLine(Client, "PS", FileRecordNumber, Cycle)
+public record AirportMSA(string Airport, string Fix, char MultiCode, AirportMSA.MSASector[] Sectors) : RecordLine("PS")
 {
 	public static new AirportMSA Parse(string line)
 	{
@@ -1041,7 +1070,7 @@ public record AirportMSA(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, airport, centerFix, multiCode, sectors.ToArray(), frn, cycle);
+		return new(airport, centerFix, multiCode, [..sectors]);
 	}
 
 	public record MSASector(MagneticCourse AntiClockwiseLimit, MagneticCourse ClockwiseLimit, AltitudeRestriction Altitude, decimal Radius)
@@ -1064,10 +1093,9 @@ public record AirportMSA(string Client,
 	}
 }
 
-public record RestrictiveAirspace(string Client,
+public record RestrictiveAirspace(
 	string Region, string Designation, RestrictiveAirspace.RestrictionType Restriction, uint SequenceNumber,
-	BoundarySegment Boundary, (Altitude? Lower, Altitude? Upper) VerticalBounds, string Name,
-	int FileRecordNumber, int Cycle) : RecordLine(Client, "UR", FileRecordNumber, Cycle)
+	BoundarySegment Boundary, (Altitude? Lower, Altitude? Upper) VerticalBounds, string Name) : RecordLine("UR")
 {
 	public static new RestrictiveAirspace? Parse(string line)
 	{
@@ -1102,7 +1130,7 @@ public record RestrictiveAirspace(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, region, designation, restriction, seqNumber, boundary, (lowerLimit, upperLimit), name, frn, cycle);
+		return new(region, designation, restriction, seqNumber, boundary, (lowerLimit, upperLimit), name);
 	}
 
 	public enum RestrictionType

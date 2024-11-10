@@ -1,11 +1,11 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Collections.Frozen;
 
 using WSleeman.Osm;
 
-using static SectorGenerator.Helpers;
+using static CIFPReader.Helpers;
 
-namespace SectorGenerator;
+namespace CIFPReader;
 
 internal class Osm(OsmData data)
 {
@@ -19,7 +19,7 @@ internal class Osm(OsmData data)
 
 	public static async Task<Osm> Load() => 
 		new((await Overpass.FromQueryAsync(@"[out:json][timeout:240];
-area[""ISO3166-1:alpha3""=""USA""]->.searchArea;
+area[""ISO3166-1:alpha3""=""CAN""]->.searchArea;
 (
 	nwr[""aeroway""](area.searchArea);
 	>;

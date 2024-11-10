@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Nodes;
+using System.Text.Json.Nodes;
 using WorldsectorGenerator;
 
 Console.Write("Getting IVAO API token..."); await Console.Out.FlushAsync();

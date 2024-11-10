@@ -1,11 +1,11 @@
-﻿using NetTopologySuite.IO;
+using NetTopologySuite.IO;
 
 using System.Collections.Frozen;
 using System.Drawing;
 
 using WSleeman.Osm;
 
-namespace SectorGenerator;
+namespace CIFPReader;
 internal static class Coastline
 {
 	public static Dictionary<char, Way[]> LoadTopologies(string topoPath)

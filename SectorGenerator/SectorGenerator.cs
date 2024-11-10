@@ -1,6 +1,4 @@
-﻿#define OSM
-using CIFPReader;
-
+#define OSM
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Text;
@@ -9,60 +7,35 @@ using System.Text.Json.Nodes;
 
 using WSleeman.Osm;
 
-using static SectorGenerator.Helpers;
+using static CIFPReader.Helpers;
 
-namespace SectorGenerator;
+namespace CIFPReader;
 
 public class Program
 {
 	public static async Task Main()
 	{
 		Config config = File.Exists("config.json") ? JsonSerializer.Deserialize<Config>(File.ReadAllText("config.json")) : Config.Default;
-
 		Console.Write("Getting IVAO API token..."); await Console.Out.FlushAsync();
 		(string apiToken, string apiRefreshToken) = await GetApiKeysAsync(config);
 		Console.WriteLine($" Done! (Refresh: {apiRefreshToken})");
 
-		// Long loading threads in parallel!
-		Console.Write("Downloading ARTCC boundaries, CIFPs, and OSM data..."); await Console.Out.FlushAsync();
-		CIFP? cifp = null;
-#if OSM
-		Osm? osm = null;
-#endif
-		Dictionary<string, (double Latitude, double Longitude)[]> artccBoundaries = [];
-		Dictionary<string, string[]> artccNeighbours = [];
-		string[] faaArtccs = [];
-
-		for (int iterations = 0; iterations < 3; ++iterations)
-		{
-			try
-			{
-				await Task.WhenAll([
-					Task.Run(async () => (artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath)),
-					Task.Run(() => cifp ??= CIFP.Load()),
-#if OSM
-					Task.Run(async () => osm ??= await Osm.Load())
-#endif
-				]);
-				break;
-			}
-			catch (TimeoutException) { /* Sometimes things choke. */ }
-			catch (TaskCanceledException) { /* Sometimes things choke. */ }
-		}
+		Console.Write("Reading AIRAC data..."); await Console.Out.FlushAsync();
+		CIFP cifp = new(config.AiracFile, "C");
+		Console.WriteLine(" Done!");
 
 #if OSM
-		// Keep the compiler happy with fallback checks.
-		if (cifp is null || osm is null)
-		{
-			Console.WriteLine(" FAILED!");
-			return;
-		}
+		Console.Write("Downloading OSM data..."); await Console.Out.FlushAsync();
+		Osm osm = await Osm.Load();
 		Console.WriteLine(" Done!");
 #endif
+		Dictionary<string, (double Latitude, double Longitude)[]> firBoundaries = cifp.FirBoundaries;
+		Dictionary<string, string[]> firNeighbours = cifp.FirNeighbours;
+		string[] targetFirs = [.. firBoundaries.Keys.Where(k => k[0] == 'C')];
 
 		// Generate copy-pasteable Webeye shapes for each of the ARTCCs.
-		(string Artcc, string Shape)[] artccWebeyeShapes = [..
-			artccBoundaries.Select(b => (
+		(string Fir, string Shape)[] firWebeyeShapes = [..
+			firBoundaries.Where(b => targetFirs.Contains(b.Key)).Select(b => (
 				b.Key,
 				string.Join("\r\n", b.Value.Reverse().Select(p => $"{p.Latitude:00.0####}:{(p.Longitude > 0 ? p.Longitude - 360 : p.Longitude):000.0####}").ToArray())
 			))
@@ -71,16 +44,16 @@ public class Program
 		if (!Directory.Exists("webeye"))
 			Directory.CreateDirectory("webeye");
 
-		foreach (var (artcc, shape) in artccWebeyeShapes)
-			File.WriteAllText(Path.ChangeExtension(Path.Join("webeye", artcc), "txt"), shape);
+		foreach (var (fir, shape) in firWebeyeShapes)
+			File.WriteAllText(Path.ChangeExtension(Path.Join("webeye", fir), "txt"), shape);
 
 		Console.Write("Allocating airports to centers..."); await Console.Out.FlushAsync();
 		Dictionary<string, HashSet<Aerodrome>> centerAirports = [];
 
-		foreach (var (artcc, points) in artccBoundaries)
-			centerAirports.Add(artcc, [..
+		foreach (var (fir, points) in firBoundaries.Where(b => targetFirs.Contains(b.Key)))
+			centerAirports.Add(fir, [..
 				cifp.Aerodromes.Values.Where(a => IsInPolygon(points, ((double)a.Location.Latitude, (double)a.Location.Longitude)))
-					.Concat(config.SectorAdditionalAirports.TryGetValue(artcc, out var addtl) ? addtl.Select(a => cifp.Aerodromes[a]) : [])
+					.Concat(config.SectorAdditionalAirports.TryGetValue(fir, out var addtl) ? addtl.Select(a => cifp.Aerodromes[a]) : [])
 			]);
 
 		Console.WriteLine(" Done!");
@@ -88,37 +61,17 @@ public class Program
 		Console.Write("Allocating runways to centers..."); await Console.Out.FlushAsync();
 		Dictionary<string, HashSet<(string Airport, HashSet<Runway> Runways)>> centerRunways = [];
 
-		foreach (var (artcc, points) in artccBoundaries)
-			centerRunways.Add(artcc, [.. cifp.Runways.Where(kvp => centerAirports[artcc].Select(ad => ad.Identifier).Contains(kvp.Key)).Select(kvp => (kvp.Key, kvp.Value))]);
+		foreach (var (fir, points) in firBoundaries.Where(b => targetFirs.Contains(b.Key)))
+			centerRunways.Add(fir, [.. cifp.Runways.Where(kvp => centerAirports[fir].Select(ad => ad.Identifier).Contains(kvp.Key)).Select(kvp => (kvp.Key, kvp.Value))]);
 
 		Console.WriteLine(" Done!");
 
 		Console.Write("Getting ATC positions..."); await Console.Out.FlushAsync();
-		var atcPositions = await GetAtcPositionsAsync(apiToken, "K", "TJ", "PH", "PA");
-		Dictionary<string, JsonObject[]> positionArtccs = atcPositions.GroupBy(p =>
-		{
-			string facility = p["composePosition"]!.GetValue<string>().Split("_")[0];
-
-			if (facility.StartsWith("KZ"))
-				return facility[1..];
-			else if (TraconCenters.TryGetValue(facility, out string? artcc))
-				return artcc;
-			else if (!centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == facility)))
-			{
-				if ((p["airportId"] ?? p["centerId"])?.GetValue<string>() is string pos && centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == pos)))
-					return centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == pos)).Key;
-
-				return facility[..2] switch {
-					"TJ" => "ZSU",
-					"PH" => "ZHN",
-					"PA" => "ZAN",
-					"PG" => "ZUA",
-					_ => "ZZZ"
-				};
-			}
-			else
-				return centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == facility)).Key;
-		}).ToDictionary(g => g.Key, g => g.ToArray());
+		var atcPositions = await GetAtcPositionsAsync(apiToken, "C");
+		Dictionary<string, JsonObject[]> positionFirs =
+			atcPositions
+			.GroupBy(p => p["composePosition"]!.GetValue<string>().Split("_")[0])
+			.ToDictionary(g => g.Key, g => g.ToArray());
 
 		Console.WriteLine(" Done!");
 
@@ -138,7 +91,7 @@ public class Program
 #endif
 
 		Directory.CreateDirectory(includeFolder);
-		includeFolder = Path.Combine(includeFolder, "US");
+		includeFolder = Path.Combine(includeFolder, "CA");
 		Directory.CreateDirectory(includeFolder);
 		string polygonFolder = Path.Combine(includeFolder, "polygons");
 		Directory.CreateDirectory(polygonFolder);
@@ -168,9 +121,9 @@ public class Program
 			30
 		);
 
-		Dictionary<string, Way[]> artccOsmOnlyIcaos =
+		Dictionary<string, Way[]> firOsmOnlyIcaos =
 			apBoundaries.GetFiltered(apb => !cifp.Aerodromes.ContainsKey(apb["icao"]!)).Group(
-				artccBoundaries.ToDictionary(b => b.Key, b => new Way(0, [.. b.Value.Select(n => new Node(0, n.Latitude, n.Longitude, FrozenDictionary<string, string>.Empty))], FrozenDictionary<string, string>.Empty))
+				firBoundaries.ToDictionary(b => b.Key, b => new Way(0, [.. b.Value.Select(n => new Node(0, n.Latitude, n.Longitude, FrozenDictionary<string, string>.Empty))], FrozenDictionary<string, string>.Empty))
 			).ToDictionary(
 				kvp => kvp.Key,
 				kvp => kvp.Value.WaysAndBoundaries().ToArray());
@@ -248,34 +201,22 @@ public class Program
 		var apProcFixes = await WriteProceduresAsync(cifp, includeFolder);
 		Console.WriteLine($" Done!");
 #if OSM
-		Console.Write("Generating MRVAs..."); await Console.Out.FlushAsync();
-		// Dummy loader to force all the downloading.
-		_ = new Mrva([]);
-		Console.WriteLine($" Done!");
 		ConcurrentDictionary<string, bool> mrvaWrites = [];
 
-		Parallel.ForEach(faaArtccs, async (artcc, _, _) =>
+		foreach (string fir in targetFirs)
 		{
 			WriteIsc(
-				includeFolder, artcc, cifp, config,
-				artccBoundaries, artccNeighbours, faaArtccs, centerAirports, positionArtccs, artccOsmOnlyIcaos, centerRunways,
+				includeFolder, fir, cifp, config,
+				firBoundaries, firNeighbours, targetFirs, centerAirports, positionFirs, firOsmOnlyIcaos, centerRunways,
 				apProcFixes, apBoundaryWays
 			);
 
-			Console.Write($"{artcc} "); await Console.Out.FlushAsync();
-		});
+			Console.Write($"{fir} "); await Console.Out.FlushAsync();
+		}
 #endif
 
 		Console.WriteLine(" All Done!");
 	}
-
-	static string ArtccIcao(string faa) => faa switch {
-		"ZSU" => "TJZS",
-		"ZAN" => "PAZA",
-		"ZHN" => "PHZH",
-		"ZGU" => "KZAK",
-		_ => "K" + faa
-	};
 
 	static void WriteNavaids(string includeFolder, CIFP cifp)
 	{
@@ -348,18 +289,17 @@ public class Program
 			File.WriteAllText(Path.Combine(geoFolder, icao + ".geo"), gates.Routes + "\r\n\r\n" + taxiways.Centerlines + "\r\n\r\n" + stoplineGeos.ToString());
 		}
 
-		Way[] coastlineGeos = Coastline.LoadTopologies("coastline")['i'];
-
-		File.WriteAllLines(
-			Path.Combine(geoFolder, "coast.geo"),
-			coastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => ((n.Latitude > 15 && n.Longitude < -50 && (n.Latitude < 49 || n.Longitude < -129.5))) || (n.Longitude >= 131.5 && n.Latitude >= 0 && n.Latitude < 21))).SelectMany(w =>
+		Way[] highCoastlineGeos = [.. Coastline.LoadTopologies("coastline")['h'].Where(w => w.Nodes.Any(n => n.Latitude > 40))];
+		Way[] coarseCoastlineGeos = [.. Coastline.LoadTopologies("coastline")['c'].Where(w => w.Nodes.Any(n => n.Latitude > 40))];
+		string[] coastLines = [..highCoastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => (n.Latitude >= 49 && n.Latitude <= 50 && n.Longitude <= -95 && n.Longitude >= -141) || (n.Latitude > 41 && n.Latitude <= 50 && n.Longitude > -95 && n.Longitude < -51))).Concat(coarseCoastlineGeos.Where(w => w.Nodes.Length >= 2 && w.Nodes.Any(n => n.Latitude > 50 && n.Longitude < -51 && n.Longitude >= -141)).Where(w => !w.Nodes.Any(n => n.Latitude < 50))).SelectMany(w =>
 				w.BreakAntimeridian().Nodes.Zip(w.Nodes.Skip(1).Append(w.Nodes[0])).Select(np =>
 					Math.Abs(np.First.Longitude - np.Second.Longitude) > 180
 					? "// BREAK AT ANTIMERIDIAN."
 					: $"{np.First.Latitude:00.0####};{np.First.Longitude:000.0####};{np.Second.Latitude:00.0####};{np.Second.Longitude:000.0####};COAST;"
 				)
-			)
-		);
+			)];
+
+		File.WriteAllLines(Path.Combine(geoFolder, "coast.geo"), coastLines);
 	}
 
 	static async Task<FrozenDictionary<string, HashSet<NamedCoordinate>>> WriteProceduresAsync(CIFP cifp, string includeFolder)
@@ -369,11 +309,6 @@ public class Program
 
 		ConcurrentDictionary<string, HashSet<NamedCoordinate>> apProcFixes = [];
 		Procedures procs = new(cifp);
-
-		var tecRoutes = await Tec.GetRoutesAsync();
-		var (tecLines, tecFixes) = Procedures.TecLines(cifp, tecRoutes);
-		File.WriteAllLines(Path.Combine(procedureFolder, "KSCT.sid"), tecLines);
-		apProcFixes["KSCT"] = [.. tecFixes];
 
 		Parallel.ForEach(cifp.Aerodromes.Values, airport =>
 		{
@@ -401,13 +336,13 @@ public class Program
 	}
 
 	static void WriteIsc(
-		string includeFolder, string artcc, CIFP cifp, Config config,
-		IDictionary<string, (double Latitude, double Longitude)[]> artccBoundaries,
-		IDictionary<string, string[]> artccNeighbours,
-		string[] faaArtccs,
+		string includeFolder, string fir, CIFP cifp, Config config,
+		IDictionary<string, (double Latitude, double Longitude)[]> firBoundaries,
+		IDictionary<string, string[]> firNeighbours,
+		string[] targetFirs,
 		IDictionary<string, HashSet<Aerodrome>> centerAirports,
-		IDictionary<string, JsonObject[]> positionArtccs,
-		IDictionary<string, Way[]> artccOsmOnlyIcaos,
+		IDictionary<string, JsonObject[]> positionFirs,
+		IDictionary<string, Way[]> firOsmOnlyIcaos,
 		IDictionary<string, HashSet<(string Airport, HashSet<Runway> Runways)>> centerRunways,
 		IDictionary<string, HashSet<NamedCoordinate>> apProcFixes,
 		IDictionary<string, Way> apBoundaryWays
@@ -417,11 +352,11 @@ public class Program
 		if (!Directory.Exists(mvaFolder))
 			Directory.CreateDirectory(mvaFolder);
 
-		Airport[] ifrAirports = [.. centerAirports[artcc].Where(ad => ad is Airport ap && ap.IFR).Cast<Airport>()];
+		Airport[] ifrAirports = [.. centerAirports[fir].Where(ad => ad is Airport ap && ap.IFR).Cast<Airport>()];
 
 		if (ifrAirports.Length == 0)
 		{
-			Console.Write($"({artcc} skipped (no airports))");
+			Console.Write($"({fir} skipped (no airports))");
 			return;
 		}
 
@@ -438,12 +373,12 @@ public class Program
 {Dms(centerpoint.Longitude, true)}
 60
 {60 * Math.Abs(cosLat):00}
-{-ifrAirports.Average(ap => ap.MagneticVariation):00.0000}
-US/{artcc};US/labels;US/geos;US/polygons;US/procedures;US/navaids;US/mvas
+{-ifrAirports.Average(ap => cifp.Navaids.GetLocalMagneticVariation(ap.Location.GetCoordinate()).Variation):00.0000}
+CA/{fir};CA/labels;CA/geos;CA/polygons;CA/procedures;CA/navaids;CA/mvas
 ";
-		string artccFolder = Path.Combine(includeFolder, artcc);
-		if (!Directory.Exists(artccFolder))
-			Directory.CreateDirectory(artccFolder);
+		string firFolder = Path.Combine(includeFolder, fir);
+		if (!Directory.Exists(firFolder))
+			Directory.CreateDirectory(firFolder);
 
 		// Colours.
 		string defineBlock = $@"[DEFINE]
@@ -457,17 +392,17 @@ STOPBAR;#FFB30000;
 
 		// ATC Positions.
 		string atcBlock = "[ATC]\r\nF;atc.atc\r\n";
-		string allPositions = string.Join(' ', positionArtccs[artcc].Select(p => p["composePosition"]!.GetValue<string>()));
-		File.WriteAllLines(Path.Combine(artccFolder, "atc.atc"), [..
-			positionArtccs[artcc].Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};{allPositions};")
+		string allPositions = string.Join(' ', positionFirs[fir].Select(p => p["composePosition"]!.GetValue<string>()));
+		File.WriteAllLines(Path.Combine(firFolder, "atc.atc"), [..
+			positionFirs[fir].Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};{allPositions};")
 		]);
 
 		// Airports (main).
 		string airportBlock = "[AIRPORT]\r\nF;airports.ap\r\n";
-		File.WriteAllLines(Path.Combine(artccFolder, "airports.ap"), [..
-			centerAirports[artcc].Select(ad => $"{ad.Identifier};{ad.Elevation.ToMSL().Feet};18000;{ad.Location.Latitude:00.0####};{ad.Location.Longitude:000.0####};{ad.Name.TrimEnd()};")
+		File.WriteAllLines(Path.Combine(firFolder, "airports.ap"), [..
+			centerAirports[fir].Select(ad => $"{ad.Identifier};{ad.Elevation.ToMSL().Feet};18000;{ad.Location.Latitude:00.0####};{ad.Location.Longitude:000.0####};{ad.Name.TrimEnd()};")
 				.Concat(
-					artccOsmOnlyIcaos.TryGetValue(artcc, out var aooi)
+					firOsmOnlyIcaos.TryGetValue(fir, out var aooi)
 					? aooi.Select(w => $"{w["icao"]!};0;18000;{w.Nodes.Average(n => n.Latitude):00.0####};{w.Nodes.Average(n => n.Longitude):000.0####};{w["name"] ?? "Unknown Airport"};")
 					: []
 				)
@@ -475,23 +410,21 @@ STOPBAR;#FFB30000;
 
 		// Runways.
 		string runwayBlock = "[RUNWAY]\r\nF;runways.rw\r\n";
-		File.WriteAllText(Path.Combine(artccFolder, "runways.rw"), string.Join(
+		File.WriteAllText(Path.Combine(firFolder, "runways.rw"), string.Join(
 		"\r\n",
-		centerRunways[artcc].SelectMany(crg =>
+		centerRunways[fir].SelectMany(crg =>
 			crg.Runways
 				.Where(rw => rw.Identifier.CompareTo(rw.OppositeIdentifier) <= 0 && crg.Runways.Any(rw2 => rw.OppositeIdentifier == rw2.Identifier))
 				.Select(rw => (Primary: rw, Opposite: crg.Runways.First(rw2 => rw2.Identifier == rw.OppositeIdentifier)))
 				.Select(rws => $"{crg.Airport};{rws.Primary.Identifier};{rws.Opposite.Identifier};{rws.Primary.TDZE.ToMSL().Feet};{rws.Opposite.TDZE.ToMSL().Feet};" +
 							   $"{(int)rws.Primary.Course.Degrees};{(int)rws.Opposite.Course.Degrees};" +
 							   $"{rws.Primary.Endpoint.Latitude:00.0####};{rws.Primary.Endpoint.Longitude:000.0####};{rws.Opposite.Endpoint.Latitude:00.0####};{rws.Opposite.Endpoint.Longitude:000.0####};")
-		).Append(
-			"KSCT;TEC;TEC;100;100;0;0;0;0;0;0;"
 		)
 	));
 
 		// Airways.
-		Airway[] inScopeLowAirways = [.. cifp.Airways.Where(kvp => kvp.Key[0] is 'V' or 'T').SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInPolygon(artccBoundaries[artcc], ((double)p.Point.Latitude, (double)p.Point.Longitude)))))];
-		Airway[] inScopeHighAirways = [.. cifp.Airways.Where(kvp => kvp.Key[0] is 'Q' or 'J').SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInPolygon(artccBoundaries[artcc], ((double)p.Point.Latitude, (double)p.Point.Longitude)))))];
+		Airway[] inScopeLowAirways = [.. cifp.Airways.Where(kvp => kvp.Key[0] is 'V' or 'T').SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInPolygon(firBoundaries[fir], ((double)p.Point.Latitude, (double)p.Point.Longitude)))))];
+		Airway[] inScopeHighAirways = [.. cifp.Airways.Where(kvp => kvp.Key[0] is 'Q' or 'J').SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInPolygon(firBoundaries[fir], ((double)p.Point.Latitude, (double)p.Point.Longitude)))))];
 		string airwaysBlock = $@"[LOW AIRWAY]
 F;airways.low
 
@@ -499,12 +432,12 @@ F;airways.low
 F;airways.high
 ";
 
-		File.WriteAllLines(Path.Combine(artccFolder, "airways.low"), inScopeLowAirways.SelectMany(v => (string[])[
+		File.WriteAllLines(Path.Combine(firFolder, "airways.low"), inScopeLowAirways.SelectMany(v => (string[])[
 			$"L;{v.Identifier};{v.Skip(v.Count() / 2).First().Point.Latitude:00.0####};{v.Skip(v.Count() / 2).First().Point.Longitude:000.0####};",
 		..v.Select(p => $"T;{v.Identifier};{p.Name ?? p.Point.Latitude.ToString("00.0####")};{p.Name ?? p.Point.Longitude.ToString("000.0####")};")
 		]));
 
-		File.WriteAllLines(Path.Combine(artccFolder, "airways.high"), inScopeHighAirways.SelectMany(v => (string[])[
+		File.WriteAllLines(Path.Combine(firFolder, "airways.high"), inScopeHighAirways.SelectMany(v => (string[])[
 			$"L;{v.Identifier};{v.Skip(v.Count() / 2).First().Point.Latitude:00.0####};{v.Skip(v.Count() / 2).First().Point.Longitude:000.0####};",
 		..v.Select(p => $"T;{v.Identifier};{p.Name ?? p.Point.Latitude.ToString("00.0####")};{p.Name ?? p.Point.Longitude.ToString("000.0####")};")
 		]));
@@ -512,14 +445,14 @@ F;airways.high
 		// Fixes.
 		string fixesBlock = "[FIXES]\r\nF;fixes.fix\r\n";
 		(string Key, Coordinate Point)[] fixes = [..cifp.Fixes.SelectMany(g => g.Value.Select(v => (g.Key, Point: v.GetCoordinate())))
-		.Where(f => IsInPolygon(artccBoundaries[artcc], ((double)f.Point.Latitude, (double)f.Point.Longitude)))
-		.Concat(cifp.Navaids.SelectMany(g => g.Value.Select(v => (g.Key, Point: v.Position))))];
+		.Where(f => IsInPolygon(firBoundaries[fir], ((double)f.Point.Latitude, (double)f.Point.Longitude)))
+		.Concat(cifp.Navaids.SelectMany(g => g.Value.Where(v => IsInPolygon(firBoundaries[fir], ((double)v.Position.Latitude, (double)v.Position.Longitude))).Select(v => (g.Key, Point: v.Position))))];
 
-		File.WriteAllLines(Path.Combine(artccFolder, "fixes.fix"), [..
+		File.WriteAllLines(Path.Combine(firFolder, "fixes.fix"), [..
 		fixes
 			.Concat(inScopeLowAirways.SelectMany(aw => aw.Where(p => p.Name is string n && !fixes.Any(f => f.Key == n))).Select(p => (Key: p.Name!, Point: p.Point.GetCoordinate())))
 			.Concat(inScopeHighAirways.SelectMany(aw => aw.Where(p => p.Name is string n && !fixes.Any(f => f.Key == n))).Select(p => (Key: p.Name!, Point: p.Point.GetCoordinate())))
-			.Concat(centerAirports[artcc].SelectMany(icao => apProcFixes.TryGetValue(icao.Identifier, out var fixes) ? fixes : []).Select(p => (Key: p.Name!, Point: p.GetCoordinate())))
+			.Concat(centerAirports[fir].SelectMany(icao => apProcFixes.TryGetValue(icao.Identifier, out var fixes) ? fixes : []).Select(p => (Key: p.Name!, Point: p.GetCoordinate())))
 			.Select(f => $"{f.Key};{f.Point.Latitude:00.0####};{f.Point.Longitude:000.0####};")
 		]);
 
@@ -537,102 +470,70 @@ F;low.artcc
 F;high.artcc
 ";
 
-		IEnumerable<string> generateBoundary(string artcc)
+		IEnumerable<string> generateBoundary(string fir)
 		{
 			(double Latitude, double Longitude)[] points =
-				faaArtccs.Contains(artcc)
-				? artccBoundaries[artcc]
-				: [.. artccBoundaries[artcc], .. artccBoundaries[artcc].Reverse()];
+				targetFirs.Contains(fir)
+				? firBoundaries[fir]
+				: [.. firBoundaries[fir], .. firBoundaries[fir].Reverse()];
 
 			var pairs = points.Zip(points[1..].Append(points[0])).Append((First: points[0], Second: points[0]));
 
-			return pairs.SelectMany(bps => (string[])[$"T;{artcc};{bps.First.Latitude:00.0####};{bps.First.Longitude:000.0####};"])
-				.Prepend($"L;{artcc};{artccBoundaries[artcc].Average(bp => bp.Latitude):00.0####};{artccBoundaries[artcc].Average(bp => bp.Longitude):000.0####};7;");
+			return pairs.SelectMany(bps => (string[])[$"T;{fir};{bps.First.Latitude:00.0####};{bps.First.Longitude:000.0####};"])
+				.Prepend($"L;{fir};{firBoundaries[fir].Average(bp => bp.Latitude):00.0####};{firBoundaries[fir].Average(bp => bp.Longitude):000.0####};7;");
 		}
 
-		File.WriteAllText(Path.Combine(artccFolder, "artcc.artcc"), $@"{string.Join("\r\n", artccBoundaries[artcc].Append(artccBoundaries[artcc][0]).Select(bp => $"T;{artcc};{bp.Latitude:00.0####};{bp.Longitude:000.0####};"))}
-{string.Join("\r\n", artccNeighbours[artcc].Select(n => string.Join("\r\n", generateBoundary(n))))}
-");
+		if (firBoundaries.TryGetValue(fir, out var boundary) && boundary.Any())
+			File.WriteAllText(Path.Combine(firFolder, "artcc.artcc"), $@"{string.Join("\r\n", boundary.Append(boundary[0]).Select(bp => $"T;{fir};{bp.Latitude:00.0####};{bp.Longitude:000.0####};"))}
+		{string.Join("\r\n", firNeighbours.TryGetValue(fir, out var neighbours) ? neighbours.Where(n => firBoundaries.TryGetValue(n, out var check) && check.Any()).Select(n => string.Join("\r\n", generateBoundary(n))) : [])}
+		");
 
-		CifpAirspaceDrawing ad = new(cifp.Airspaces.Where(ap => ap.Regions.Any(r => r.Boundaries.Any(b => IsInPolygon(artccBoundaries[artcc], ((double)b.Vertex.Latitude, (double)b.Vertex.Longitude))))));
-		File.WriteAllText(Path.Combine(artccFolder, "low.artcc"), ad.ClassBPaths + "\r\n\r\n" + ad.ClassCPaths + "\r\n\r\n" + ad.ClassDPaths + "\r\n\r\n" + ad.ClassBLabels);
-		File.WriteAllText(Path.Combine(artccFolder, "high.artcc"),
+		CifpAirspaceDrawing ad = new(cifp.Airspaces.Where(ap => ap.Regions.Any(r => r.Boundaries.Any(b => IsInPolygon(firBoundaries[fir], ((double)b.Vertex.Latitude, (double)b.Vertex.Longitude))))));
+		File.WriteAllText(Path.Combine(firFolder, "low.artcc"), ad.ClassCPaths + "\r\n\r\n" + ad.ClassDPaths);
+		File.WriteAllText(Path.Combine(firFolder, "high.artcc"),
 			string.Join("\r\n",
-				positionArtccs[artcc].Where(p => p["position"]?.GetValue<string>() is "APP" && p["regionMap"] is JsonArray region && region.Count > 0 && p["airportId"] is not null)
+				positionFirs[fir].Where(p => p["position"]?.GetValue<string>() is "APP" && p["regionMap"] is JsonArray region && region.Count > 0 && p["airportId"] is not null)
 				.Select(p => WebeyeAirspaceDrawing.ToArtccPath(p["airportId"]!.GetValue<string>(), p["regionMap"]!.AsArray()))
-			)
+			) + "\r\n\r\n" + ad.ClassBPaths + "\r\n\r\n" + ad.ClassBLabels
 		);
 
 		// TODO: VFR Routes
 		string vfrBlock = "[VFRFIX]\r\nF;vfr.fix\r\n";
 
-		File.WriteAllLines(Path.Combine(artccFolder, "vfr.fix"), [..
+		File.WriteAllLines(Path.Combine(firFolder, "vfr.fix"), [..
 		fixes
 			.Where(f => f.Key.StartsWith("VP"))
 			.Select(f => $"{f.Key};{f.Point.Latitude:00.0####};{f.Point.Longitude:000.0####};")
 		]);
 
-		// MRVAs
-		Mrva mrvas = new(artccBoundaries[artcc]);
-		string mvaBlock = $@"[MVA]
-{string.Join("\r\n", mrvas.Volumes.Keys.Select(k => "F;" + ArtccIcao(k) + ".mva"))}
-";
-
-		string genLabelLine(string volume, Mrva.MrvaSegment seg)
-		{
-			var (lat, lon) = mrvas.PlaceLabel(seg);
-			return $"L;{seg.Name};{lat:00.0####};{lon:000.0####};{seg.MinimumAltitude / 100:000};8;";
-		}
-
-		foreach (var (fn, volume) in mrvas.Volumes)
-			try
-			{
-				File.WriteAllLines(Path.Combine(mvaFolder, ArtccIcao(fn) + ".mva"),
-					volume.Select(seg => string.Join("\r\n",
-						seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
-										  .Prepend(genLabelLine(fn, seg))
-					))
-				);
-			}
-			catch (IOException) { /* File in use. */ }
-
-		// Airports (additional).
-		File.AppendAllLines(Path.Combine(artccFolder, "airports.ap"), [..
-				mrvas.Volumes.Keys
-					.Where(k => !centerAirports[artcc].Any(ad => ad.Identifier == ArtccIcao(k))).Select(k =>
-						$"{ArtccIcao(k)};{mrvas.Volumes[k].Min(s => s.MinimumAltitude)};18000;" +
-						$"{mrvas.Volumes[k].Average(s => s.BoundaryPoints.Average((Func<(double Latitude, double _), double>)(bp => bp.Latitude))):00.0####};{mrvas.Volumes[k].Average(s => s.BoundaryPoints.Average((Func<(double _, double Longitude), double>)(bp => bp.Longitude))):000.0####};" +
-						$"{k} TRACON;"
-					)
-		]);
-
 		// Geo file references.
 		string geoBlock = @$"[GEO]
 F;coast.geo
-{string.Join("\r\n", centerAirports[artcc].Select(ap => $"F;{ap.Identifier}.geo"))}
-{(artccOsmOnlyIcaos.TryGetValue(artcc, out var aoois) ? string.Join("\r\n", aoois.Where(ap => (ap["icao"] ?? ap["faa"]) is not null).Select(ap => $"F;{ap["icao"] ?? ap["faa"]}.geo")) : "")}
+{string.Join("\r\n", centerAirports[fir].Select(ap => $"F;{ap.Identifier}.geo"))}
+{(firOsmOnlyIcaos.TryGetValue(fir, out var aoois) ? string.Join("\r\n", aoois.Where(ap => (ap["icao"] ?? ap["faa"]) is not null).Select(ap => $"F;{ap["icao"] ?? ap["faa"]}.geo")) : "")}
 ";
 
 		// Polyfills for dynamic sectors.
 		string polyfillBlock = $@"[FILLCOLOR]
 F;online.ply
 ";
-		File.WriteAllText(Path.Combine(artccFolder, "online.ply"), $@"{WebeyeAirspaceDrawing.ToPolyfillPath($"{ArtccIcao(artcc)}_CTR", "CTR", artccBoundaries[artcc])}
+		File.WriteAllText(Path.Combine(firFolder, "online.ply"), $@"{WebeyeAirspaceDrawing.ToPolyfillPath($"{fir}_CTR", "CTR", firBoundaries[fir])}
 
 {string.Join("\r\n\r\n",
-		positionArtccs[artcc]
+		targetFirs.Prepend(fir).Distinct().SelectMany(fir => positionFirs[fir]
 			.Where(p => p["composePosition"] is not null && p["position"]?.GetValue<string>() is "APP" or "DEP" or "CTR" or "FSS" && p["regionMap"] is JsonArray map && map.Count > 1)
 			.Select(p => WebeyeAirspaceDrawing.ToPolyfillPath(p["composePosition"]!.GetValue<string>(), p["position"]!.GetValue<string>(), p["regionMap"]!.AsArray()))
-	)}
+			.Prepend($"// {fir}")
+	))}
 
 {string.Join("\r\n\r\n",
-		centerAirports[artcc]
+		centerAirports[fir]
 			.Select(ad => apBoundaryWays.TryGetValue(ad.Identifier, out var retval) ? (ad.Identifier, retval) : ((string, Way)?)null)
 			.Where(ap => ap is not null)
 			.Cast<(string Icao, Way Boundary)>()
 			.Select(ap => (
 				Pos: string.Join(' ',
-					positionArtccs[artcc]
+					positionFirs[fir]
 						.Where(p => p["airportId"]?.GetValue<string>() == ap.Icao && p["position"]?.GetValue<string>() == "TWR")
 						.Select(p => p["composePosition"]!.GetValue<string>())
 				),
@@ -641,7 +542,7 @@ F;online.ply
 			.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Pos, "TWR", ap.Bounds))
 	)}");
 
-		File.WriteAllText(Path.Combine(config.OutputFolder, $"{ArtccIcao(artcc)}.isc"), $@"{infoBlock}
+		File.WriteAllText(Path.Combine(config.OutputFolder, $"{fir}.isc"), $@"{infoBlock}
 {defineBlock}
 {atcBlock}
 {airportBlock}
@@ -650,7 +551,6 @@ F;online.ply
 {navaidBlock}
 {airwaysBlock}
 {vfrBlock}
-{mvaBlock}
 {artccBlock}
 {geoBlock}
 {polyfillBlock}");

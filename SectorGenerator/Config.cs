@@ -1,10 +1,12 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace SectorGenerator;
+namespace CIFPReader;
 
 public struct Config
 {
+	public string AiracFile { get; set; }
+
 	public string OutputFolder { get; set; }
 
 	public string? BoundaryFilePath { get; set; }
@@ -15,6 +17,7 @@ public struct Config
 
 	[JsonIgnore]
 	public static Config Default => new() {
+		AiracFile = "airac.s3db",
 		OutputFolder = Environment.GetEnvironmentVariable("SECTORFILES_FOLDER") ?? "SectorFiles",
 		BoundaryFilePath = null,
 		IvaoApiRefresh = Environment.GetEnvironmentVariable("IVAO_REFRESH") ?? null,

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -7,9 +7,7 @@ using static CIFPReader.ProcedureLine;
 
 namespace CIFPReader;
 
-public abstract record ProcedureLine(string Client, string Header,
-	string Airport, string Name,
-	int FileRecordNumber, int Cycle) : RecordLine(Client, Header, FileRecordNumber, Cycle)
+public abstract record ProcedureLine(string Header, string Airport, string Name) : RecordLine(Header)
 {
 	public static new ProcedureLine? Parse(string line) =>
 		line[12] switch {
@@ -101,7 +99,7 @@ public abstract record ProcedureLine(string Client, string Header,
 		return (pathTerm, ep, via, receivedNavaid is null ? null : new(receivedNavaid));
 	}
 
-	protected static PathTermination PathTerminationFromString(string purpose) =>
+	public static PathTermination PathTerminationFromString(string purpose) =>
 		purpose switch {
 			// => Termination						| Via
 			"IF" => PathTermination.UntilCrossing | PathTermination.Direct,
@@ -182,11 +180,10 @@ public abstract record ProcedureLine(string Client, string Header,
 	}
 }
 
-public record SIDLine(string Client,
+public record SIDLine(
 	string Airport, string Name, SIDLine.SIDRouteType RouteType, string Transition,
 	PathTermination FixInstruction, IProcedureEndpoint? Endpoint, IProcedureVia? Via,
-	AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, UnresolvedWaypoint? ReferenceFix,
-	int FileRecordNumber, int Cycle) : ProcedureLine(Client, "PD", Airport, Name, FileRecordNumber, Cycle)
+	AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, IProcedureEndpoint? ReferenceFix) : ProcedureLine("PD", Airport, Name)
 {
 	public static new SIDLine Parse(string line)
 	{
@@ -264,8 +261,8 @@ public record SIDLine(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, airport, name, routeType, transitionIdentifier, pathTerm, ep ?? fix,
-			via, altitudeRestriction, speedRestriction, referencePoint, frn, cycle);
+		return new(airport, name, routeType, transitionIdentifier, pathTerm, ep ?? fix,
+			via, altitudeRestriction, speedRestriction, referencePoint);
 	}
 
 	public static bool TryParse(string line, [NotNullWhen(true)] out SIDLine? result)
@@ -297,11 +294,10 @@ public record SIDLine(string Client,
 	}
 }
 
-public record STARLine(string Client,
+public record STARLine(
 	string Airport, string Name, STARLine.STARRouteType RouteType, string Transition, bool Initial,
 	PathTermination FixInstruction, IProcedureEndpoint? Endpoint, IProcedureVia? Via,
-	AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, UnresolvedWaypoint? ReferenceFix,
-	int FileRecordNumber, int Cycle) : ProcedureLine(Client, "PE", Airport, Name, FileRecordNumber, Cycle)
+	AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, IProcedureEndpoint? ReferenceFix) : ProcedureLine("PE", Airport, Name)
 {
 	public static new STARLine Parse(string line)
 	{
@@ -368,8 +364,8 @@ public record STARLine(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, airport, name, routeType, transitionIdentifier, initialFix, pathTerm,
-			ep ?? fix, procVia, altitudeRestriction, speedRestriction, referencePoint, frn, cycle);
+		return new(airport, name, routeType, transitionIdentifier, initialFix, pathTerm,
+			ep ?? fix, procVia, altitudeRestriction, speedRestriction, referencePoint);
 	}
 
 	public static bool TryParse(string line, [NotNullWhen(true)] out STARLine? result)
@@ -399,10 +395,10 @@ public record STARLine(string Client,
 	}
 }
 
-public record ApproachLine(string Client,
+public record ApproachLine(
 	string Airport, string Name, ApproachLine.ApproachRouteType RouteType, string Transition, PathTermination FixInstruction,
-	IProcedureEndpoint? Endpoint, IProcedureVia? Via, string? ReferencedNavaid, AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, UnresolvedWaypoint? ReferenceFix,
-	int FileRecordNumber, int Cycle) : ProcedureLine(Client, "PF", Airport, Name, FileRecordNumber, Cycle)
+	IProcedureEndpoint? Endpoint, IProcedureVia? Via, string? ReferencedNavaid, AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, IProcedureEndpoint? ReferenceFix
+	) : ProcedureLine("PF", Airport, Name)
 {
 	public static new ApproachLine? Parse(string line)
 	{
@@ -482,8 +478,8 @@ public record ApproachLine(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, airport, name, routeType, transitionIdentifier, pathTerm, ep ?? fix, procVia, referencedNavaid,
-			altitudeRestriction, speedRestriction, referencePoint, frn, cycle);
+		return new(airport, name, routeType, transitionIdentifier, pathTerm, ep ?? fix, procVia, referencedNavaid,
+			altitudeRestriction, speedRestriction, referencePoint);
 	}
 
 	public static bool TryParse(string line, [NotNullWhen(true)] out ApproachLine? result)

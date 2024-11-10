@@ -1,8 +1,8 @@
-﻿using CIFPReader;
+#define EMIT_TRANSITIONS
 
 using static CIFPReader.Procedure;
 
-namespace SectorGenerator;
+namespace CIFPReader;
 internal class Procedures(CIFP cifp)
 {
 	private readonly CIFP _cifp = cifp;
@@ -27,6 +27,7 @@ internal class Procedures(CIFP cifp)
 					runways = $"{runways[..^1]}L:{runways[..^1]}R";
 
 				foundRunways.UnionWith(runways.Split(':'));
+#if EMIT_TRANSITIONS
 				NamedCoordinate[] namedPointsOnProc = [..sid.SelectRoute(inboundTransition, outboundTransition)
 					.Where(s => s.Endpoint is NamedCoordinate nc).Select(s => (NamedCoordinate)s.Endpoint!)];
 				NamedCoordinate midPoint = namedPointsOnProc.Length > 0 ? namedPointsOnProc[namedPointsOnProc.Length / 2] : new(apIcao, new());
@@ -53,7 +54,7 @@ internal class Procedures(CIFP cifp)
 					else
 						startPoint = aerodrome.Location.GetCoordinate();
 
-					var (transitionLines, transitionFixes) = Run(startPoint, aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectRoute(inboundTransition, outboundTransition));
+					var (transitionLines, transitionFixes) = Run(startPoint, aerodrome.Elevation.Feet, _cifp.Navaids.GetLocalMagneticVariation(startPoint).Variation, apIcao, sid.SelectRoute(inboundTransition, outboundTransition));
 					bool killNext = false;
 
 					sidLines.AddRange(transitionLines.TakeWhile(l =>
@@ -67,6 +68,7 @@ internal class Procedures(CIFP cifp)
 					}));
 					fixes.UnionWith(transitionFixes);
 				}
+#endif
 			}
 
 			// Composite procedure
@@ -78,7 +80,7 @@ internal class Procedures(CIFP cifp)
 				  : string.Join(':', rws.Select(rw => rw.Identifier));
 
 			sidLines.Add($"{apIcao};{affectedRunways};{sid.Name};{apIcao};{apIcao};");
-			var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, sid.SelectAllRoutes(_cifp.Fixes));
+			var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, _cifp.Navaids.GetLocalMagneticVariation(aerodrome.Location.GetCoordinate()).Variation, apIcao, sid.SelectAllRoutes(_cifp.Fixes));
 			sidLines.AddRange(massLines);
 			fixes.UnionWith(massFixes);
 		}
@@ -106,6 +108,7 @@ internal class Procedures(CIFP cifp)
 					runways = $"{runways[..^1]}L:{runways[..^1]}R";
 
 				foundRunways.UnionWith(runways.Split(':'));
+#if EMIT_TRANSITIONS
 				NamedCoordinate[] namedPointsOnProc = [..star.SelectRoute(inboundTransition, outboundTransition)
 					.Where(s => s.Endpoint is NamedCoordinate nc).Select(s => (NamedCoordinate)s.Endpoint!)];
 				NamedCoordinate midPoint = namedPointsOnProc.Length > 0 ? namedPointsOnProc[namedPointsOnProc.Length / 2] : new(apIcao, new());
@@ -117,9 +120,10 @@ internal class Procedures(CIFP cifp)
 
 				Coordinate startPoint = _cifp.Aerodromes[apIcao].Location.GetCoordinate();
 
-				var (transitionLines, transitionFixes) = Run(startPoint, aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, star.SelectRoute(inboundTransition, outboundTransition));
+				var (transitionLines, transitionFixes) = Run(startPoint, aerodrome.Elevation.Feet, _cifp.Navaids.GetLocalMagneticVariation(startPoint).Variation, apIcao, star.SelectRoute(inboundTransition, outboundTransition));
 				starLines.AddRange(transitionLines);
 				fixes.UnionWith(transitionFixes);
+#endif
 			}
 
 			string affectedRunways =
@@ -130,7 +134,7 @@ internal class Procedures(CIFP cifp)
 				  : string.Join(':', rws.Select(rw => rw.Identifier));
 
 			starLines.Add($"{apIcao};{affectedRunways};{star.Name};{apIcao};{apIcao};");
-			var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, star.SelectAllRoutes(_cifp.Fixes));
+			var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, _cifp.Navaids.GetLocalMagneticVariation(aerodrome.Location.GetCoordinate()).Variation, apIcao, star.SelectAllRoutes(_cifp.Fixes));
 			starLines.AddRange(massLines);
 			fixes.UnionWith(massFixes);
 		}
@@ -190,116 +194,12 @@ internal class Procedures(CIFP cifp)
 			else
 				iapLines.Add($"{apIcao};{runways};{iapName};{midPoint.Latitude:00.0####};{midPoint.Longitude:000.0####};3;");
 
-			var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, aerodrome.MagneticVariation, apIcao, iap.SelectAllRoutes(_cifp.Fixes));
+			var (massLines, massFixes) = GraphRender(aerodrome.Location.GetCoordinate(), aerodrome.Elevation.Feet, _cifp.Navaids.GetLocalMagneticVariation(aerodrome.Location.GetCoordinate()).Variation, apIcao, iap.SelectAllRoutes(_cifp.Fixes));
 			iapLines.AddRange(massLines);
 			fixes.UnionWith(massFixes);
 		}
 
 		return ([.. iapLines], [.. fixes]);
-	}
-
-	public static (string[] tecLines, NamedCoordinate[] fixes) TecLines(CIFP cifp, IEnumerable<Tec.TecRoute> tecRoutes)
-	{
-		Coordinate startPoint = new(33.675556m, -117.868333m); // KSNA
-		List<string> tecLines = [];
-		HashSet<NamedCoordinate> fixes = [];
-
-		foreach (Tec.TecRoute route in tecRoutes)
-		{
-			Queue<string> routeSegments = new(route.Route);
-			string lastFix = "";
-			tecLines.Add($"KSCT;TEC;{route.Name};33.675556;-117.868333;");
-
-			if (cifp.Procedures.TryGetValue(routeSegments.Peek(), out var allMatchingSids) && allMatchingSids.Count == 1 && allMatchingSids.Single() is SID matchingSid)
-			{
-				routeSegments.Dequeue();
-				// SID
-				IEnumerable<Instruction?> sidRoute =
-					matchingSid.EnumerateTransitions().Any(t => t.Outbound == routeSegments.Peek())
-					? matchingSid.SelectRoute(null, routeSegments.Dequeue())
-					: matchingSid.SelectAllRoutes(cifp.Fixes);
-
-				var (sidLines, sidFixes) = GraphRender(startPoint, 100, 11.5m, "KSCT", sidRoute);
-				tecLines.AddRange(sidLines);
-				fixes.UnionWith(sidFixes);
-
-				if (sidLines.Length > 0)
-					lastFix = sidLines.Last().Split(';')[0];
-			}
-
-			while (routeSegments.Count > 1 || (routeSegments.Count == 1 && !cifp.Procedures.ContainsKey(routeSegments.Peek())))
-			{
-				string next = routeSegments.Dequeue();
-
-				if (cifp.Airways.TryGetValue(next, out var matchingAirways) && matchingAirways.FirstOrDefault(aw => aw.Any(awf => awf.Name == lastFix)) is Airway aw)
-				{
-					// Airway
-					string endpoint = routeSegments.Count > 0 ? routeSegments.Dequeue() : aw.Last(awf => awf.Name is not null).Name!;
-					if (lastFix == endpoint || !aw.Any(awf => awf.Name == endpoint))
-						continue;
-
-					Airway.AirwayFix[] awfixes =
-						aw.TakeWhile(awf => awf.Name != endpoint).Count() < aw.TakeWhile(awf => awf.Name != next).Count()
-						? aw.Reverse().ToArray()
-						: [.. aw];
-
-					foreach (Airway.AirwayFix fix in awfixes.SkipWhile(awf => awf.Name != next).TakeWhile(awf => awf.Name != endpoint))
-					{
-						if (fix.Point is NamedCoordinate nc)
-						{
-							tecLines.Add($"{nc.Name};{nc.Name};");
-							fixes.Add(nc);
-						}
-						else if (fix.Point is Coordinate c)
-							tecLines.Add($"{c.Latitude:00.0####};{c.Longitude:000.0####};");
-					}
-
-					tecLines.Add($"{endpoint};{endpoint};");
-					fixes.Add(new(endpoint, awfixes.First(awf => awf.Name == endpoint).Point.GetCoordinate()));
-					lastFix = endpoint;
-				}
-				else if (next.Contains('/') && cifp.Navaids.TryGetValue(new((char[])[..next.TakeWhile(n => !char.IsDigit(n))]), out var frdNavaids))
-				{
-					// Fix radial distance.
-					int radial = int.Parse(new((char[])[.. next.SkipWhile(char.IsLetter).TakeWhile(char.IsDigit)]));
-					decimal distance = int.Parse(new((char[])[.. next.SkipWhile(c => c != '/').Skip(1).TakeWhile(char.IsDigit)])) / 10m;
-					Navaid navaid = frdNavaids.MinBy(n => n.Position.DistanceTo(startPoint))!;
-					Coordinate frdCoord = navaid.Position.FixRadialDistance(new MagneticCourse(radial, navaid.MagneticVariation ?? 11.5m), distance);
-					tecLines.Add($"{frdCoord.Latitude:00.0####};{frdCoord.Longitude:000.0####};");
-					lastFix = navaid.Name;
-				}
-				else if (cifp.Navaids.ContainsKey(new((char[])[..next.TakeWhile(n => !char.IsDigit(n))])))
-				{
-					// TODO: Just intercept the dang radial!
-					string name = new((char[])[.. next.TakeWhile(n => !char.IsDigit(n))]);
-					tecLines.Add($"{name};{name};");
-					lastFix = name;
-				}
-				else if (cifp.Fixes.TryGetValue(next, out var coords))
-				{
-					// Single fix
-					NamedCoordinate point = new(next, coords.MinBy(c => c.GetCoordinate().DistanceTo(startPoint))!.GetCoordinate());
-					tecLines.Add($"{point.Name};{point.Name};");
-					fixes.Add(point);
-					lastFix = next;
-				}
-			}
-
-			if (routeSegments.TryDequeue(out string? starProcName) && cifp.Procedures.TryGetValue(starProcName, out var allMatchingStars) && allMatchingStars.Count == 1 && allMatchingStars.Single() is STAR matchingStar)
-			{
-				// STAR
-				IEnumerable<Instruction?> starRoute =
-					matchingStar.EnumerateTransitions().Any(t => t.Inbound == lastFix)
-					? matchingStar.SelectRoute(lastFix, null)
-					: matchingStar.SelectAllRoutes(cifp.Fixes);
-
-				var (starLines, starFixes) = GraphRender(startPoint, 100, 11.5m, "KSCT", starRoute);
-				tecLines.AddRange(starLines);
-				fixes.UnionWith(starFixes);
-			}
-		}
-
-		return ([.. tecLines], [.. fixes]);
 	}
 
 	private static (string[] Lines, NamedCoordinate[] Fixes) Run(Coordinate startPoint, int elevation, decimal magVar, string airportIcao, IEnumerable<Instruction?> instructions)

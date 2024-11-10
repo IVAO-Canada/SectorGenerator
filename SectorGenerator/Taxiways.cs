@@ -1,6 +1,6 @@
-﻿using WSleeman.Osm;
+using WSleeman.Osm;
 
-namespace SectorGenerator;
+namespace CIFPReader;
 
 internal class Taxiways(string airport, Osm taxiways)
 {

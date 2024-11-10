@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -19,9 +19,7 @@ internal static class EnrouteLine
 		};
 }
 
-public record Waypoint(string Client,
-	string Identifier, string Airport, Waypoint.WPType Type, Waypoint.WPUsage Usage, Coordinate Position, string Name,
-	int FileRecordNumber, int Cycle) : RecordLine(Client, "EA", FileRecordNumber, Cycle)
+public record Waypoint(string Identifier, string Airport, Waypoint.WPType Type, Waypoint.WPUsage Usage, Coordinate Position, string Name) : RecordLine("EA")
 {
 	public static new Waypoint Parse(string line)
 	{
@@ -68,7 +66,7 @@ public record Waypoint(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, identifier, airport, type, usage, position, name, frn, cycle);
+		return new(identifier, airport, type, usage, position, name);
 	}
 
 	public enum WPType
@@ -93,9 +91,7 @@ public record Waypoint(string Client,
 	}
 }
 
-public record PathPoint(string Client,
-	string Airport, string Approach, string Runway, Coordinate Position,
-	int FileRecordNumber, int Cycle) : RecordLine(Client, "PP", FileRecordNumber, Cycle)
+public record PathPoint(string Airport, string Approach, string Runway, Coordinate Position) : RecordLine("PP")
 {
 	public static new PathPoint? Parse(string line)
 	{
@@ -131,7 +127,7 @@ public record PathPoint(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, airport, approach, runway, thresholdPoint, frn, cycle);
+		return new(airport, approach, runway, thresholdPoint);
 	}
 }
 
@@ -150,7 +146,7 @@ public class Airway : IEnumerable<Airway.AirwayFix>
 		if (fixLines.Length < 2)
 			throw new ArgumentException("Airway must have at least two points.", nameof(fixLines));
 
-		List<AirwayFix> fs = new() { new(fixLines.First(), fixDb, fixLines.First().Fix.Resolve(fixDb, fixLines[1].Fix).Position) };
+		List<AirwayFix> fs = [new(fixLines.First(), fixDb, fixLines.First().Fix is UnresolvedWaypoint uw ? uw.Resolve(fixDb, (ICoordinate?)fixLines[1].Fix).Position : (ICoordinate)fixLines.First().Fix)];
 
 		foreach (AirwayFixLine afl in fixLines.Skip(1))
 			fs.Add(new(afl, fixDb, fs.Last().Point.GetCoordinate()));
@@ -175,10 +171,10 @@ public class Airway : IEnumerable<Airway.AirwayFix>
 		public AirwayFix(string name, ICoordinate point, AltitudeRestriction inboundAltitude, AltitudeRestriction outboundAltitude) =>
 			(Name, Point, InboundAltitude, OutboundAltitude) = (name, point, inboundAltitude, outboundAltitude);
 
-		public AirwayFix(AirwayFixLine fix, Dictionary<string, HashSet<ICoordinate>> fixes, Coordinate reference)
+		public AirwayFix(AirwayFixLine fix, Dictionary<string, HashSet<ICoordinate>> fixes, ICoordinate reference)
 		{
-			Name = fix.Fix.Name;
-			Point = fix.Fix.Resolve(fixes, reference);
+			Name = fix.Fix is UnresolvedWaypoint uwn ? uwn.Name : ((NamedCoordinate)fix.Fix).Name;
+			Point = fix.Fix is UnresolvedWaypoint uwp ? uwp.Resolve(fixes, reference) : (ICoordinate)fix.Fix;
 			(InboundAltitude, OutboundAltitude) = (fix.InboundAltitude, fix.OutboundAltitude);
 		}
 	}
@@ -236,10 +232,9 @@ public class Airway : IEnumerable<Airway.AirwayFix>
 	}
 }
 
-public record AirwayFixLine(string Client,
-	string AirwayIdentifier, int SequenceNumber, UnresolvedWaypoint Fix, bool RNAV, AirwayFixLine.RTLevel Level, MagneticCourse? OutboundCourse,
-	decimal? Distance, MagneticCourse? InboundCourse, AltitudeRestriction OutboundAltitude, AltitudeRestriction InboundAltitude,
-	int FileRecordNumber, int Cycle) : RecordLine(Client, "ER", FileRecordNumber, Cycle)
+public record AirwayFixLine(
+	string AirwayIdentifier, int SequenceNumber, IProcedureEndpoint Fix, bool RNAV, AirwayFixLine.RTLevel Level, MagneticCourse? OutboundCourse,
+	decimal? Distance, MagneticCourse? InboundCourse, AltitudeRestriction OutboundAltitude, AltitudeRestriction InboundAltitude) : RecordLine("ER")
 {
 	public static new AirwayFixLine Parse(string line)
 	{
@@ -291,8 +286,8 @@ public record AirwayFixLine(string Client,
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(client, identifier, sequenceNum, fix, rnav, level, outboundCourse, distance, inboundCourse, new(outboundMinimumAlt, maximumAlt),
-			new(inboundMinimumAlt, maximumAlt), frn, cycle);
+		return new(identifier, sequenceNum, fix, rnav, level, outboundCourse, distance, inboundCourse,
+				   new(outboundMinimumAlt, maximumAlt), new(inboundMinimumAlt, maximumAlt));
 	}
 
 	public static bool TryParse(string line, [NotNullWhen(true)] out AirwayFixLine? result)

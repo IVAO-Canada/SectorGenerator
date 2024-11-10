@@ -1,12 +1,10 @@
-﻿using CIFPReader;
-
 using System.Text;
 using System.Text.Json.Nodes;
 
 using static CIFPReader.ControlledAirspace;
-using static System.Net.Mime.MediaTypeNames;
+using static CIFPReader.Helpers;
 
-namespace SectorGenerator;
+namespace CIFPReader;
 
 internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 {
@@ -265,11 +263,86 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 	public string ClassBLabels => string.Join("\r\n",
 		_linearRegions.Where(r => r.AsClass == AirspaceClass.B).Select(r =>
 		{
-			var (labelLat, labelLon) = Mrva.PlaceLabel(r.Region, [.. _linearRegions.Where(lr => lr.AsClass == AirspaceClass.B && lr != r).Select(lr => lr.Region)]);
+			var (labelLat, labelLon) = PlaceLabel(r.Region, [.. _linearRegions.Where(lr => lr.AsClass == AirspaceClass.B && lr != r).Select(lr => lr.Region)]);
 			string[] lChunks = r.Label.ReplaceLineEndings("\n").Split('\n');
 			return $"L;{lChunks[^1]}\\{lChunks[0]};{labelLat:00.0####};{labelLon:000.0####};8;";
 		})
 	);
+
+	public static (double Latitude, double Longitude) PlaceLabel((double Latitude, double Longitude)[] boundary, IEnumerable<(double Latitude, double Longitude)[]> otherBoundaries)
+	{
+		var cp = (boundary.Average(bp => bp.Latitude), boundary.Average(bp => bp.Longitude));
+		double maxDist = Math.Sqrt(boundary.Max(bp => FastSquaredDistanceTo(cp, bp)));
+
+		(double Lat, double Lon)[][] overlapping = [.. otherBoundaries.Where(ob => !ob.SequenceEqual(boundary) && AreaContainsArea(boundary, ob))];
+
+		if (IsInPolygon(boundary, cp) && !overlapping.Any(o => IsInPolygon(o, cp)))
+			return cp;
+
+		(double, double) stabilise((double Lat, double Lon) point)
+		{
+			double pointSqDist = FastSquaredDistanceTo(cp, point);
+			var furtherPoints = boundary.Where(bp => FastSquaredDistanceTo(cp, bp) > pointSqDist).ToArray();
+
+			if (furtherPoints.Length == 0)
+				return point;
+
+			var bp = furtherPoints.MinBy(bp => FastSquaredDistanceTo(point, bp));
+			double startDist = Math.Sqrt(FastSquaredDistanceTo(point, bp)) / 120;
+			double radAng = Math.Atan2(bp.Latitude - point.Lat, bp.Longitude - point.Lon);
+			var sincos = Math.SinCos(radAng);
+
+			for (double dist = startDist; dist > 0; dist -= startDist / 10)
+			{
+				var testPoint = (point.Lat + sincos.Sin * dist, point.Lon + sincos.Cos * dist);
+				if (IsInPolygon(boundary, testPoint) && !overlapping.Any(o => IsInPolygon(o, testPoint)))
+					return testPoint;
+			}
+
+			return point;
+		}
+
+		for (int dist = 1; dist < maxDist * 10; ++dist)
+		{
+			for (double angle = 225; angle >= 0; angle -= 45)
+			{
+				(double Lat, double Lon) testPoint = FixRadialDistance(cp, angle, dist / 10.0);
+				if (IsInPolygon(boundary, testPoint) && !overlapping.Any(o => IsInPolygon(o, testPoint)))
+					return stabilise(testPoint);
+			}
+
+			for (double angle = 315; angle >= 270; angle -= 45)
+			{
+				(double Lat, double Lon) testPoint = FixRadialDistance(cp, angle, dist / 10.0);
+				if (IsInPolygon(boundary, testPoint) && !overlapping.Any(o => IsInPolygon(o, testPoint)))
+					return stabilise(testPoint);
+			}
+		}
+
+		return cp;
+	}
+
+	static (double Latitude, double Longitude) FixRadialDistance((double Lat, double Lon) origin, double radial, double distance)
+	{
+		const double DEG_TO_RAD = Math.Tau / 360;
+		double radialRad = radial * DEG_TO_RAD,
+			   degDist = distance / 60;
+
+		var sincos = Math.SinCos(radialRad);
+
+		return (origin.Lat + degDist * sincos.Cos, origin.Lon + degDist * sincos.Sin / Math.Cos(origin.Lat * DEG_TO_RAD));
+	}
+
+	static double FastSquaredDistanceTo((double Lat, double Lon) from, (double Lat, double Lon) to)
+	{
+		double dLat = (to.Lat - from.Lat) * 60,
+			   dLon = (to.Lon - from.Lon) * 60 * Math.Cos(from.Lat * Math.Tau / 360);
+
+		return dLat * dLat + dLon * dLon;
+	}
+
+	public static bool AreaContainsArea((double, double)[] area1, (double, double)[] area2) =>
+		area2.Any(p => IsInPolygon(area1, p));
 
 	private class Route(string altitude) : IEnumerable<Route.RouteSegment>
 	{

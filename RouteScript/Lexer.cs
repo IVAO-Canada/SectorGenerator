@@ -1,4 +1,4 @@
-﻿namespace RouteScript;
+namespace RouteScript;
 
 internal class Lexer
 {

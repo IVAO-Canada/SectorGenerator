@@ -1,4 +1,4 @@
-﻿using CIFPReader;
+using CIFPReader;
 
 using System.Collections.Frozen;
 using System.Diagnostics;
@@ -7,7 +7,7 @@ using System.Text.Json.Nodes;
 
 using WSleeman.Osm;
 
-namespace SectorGenerator;
+namespace CIFPReader;
 
 internal static class Helpers
 {
@@ -34,6 +34,9 @@ internal static class Helpers
 	/// <seealso cref="https://stackoverflow.com/a/218081/8443457"/>
 	public static bool IsInPolygon((double Latitude, double Longitude)[] polygon, (double Latitude, double Longitude) point)
 	{
+		if (polygon.Length == 0)
+			return false;
+
 		double minLat = polygon.Min(p => p.Latitude), maxLat = polygon.Max(p => p.Latitude),
 			  minLon = polygon.Min(p => p.Longitude), maxLon = polygon.Max(p => p.Longitude);
 
@@ -120,18 +123,6 @@ internal static class Helpers
 		return (dLon * dLon + dLat * dLat) * SQUARED_RAD;
 	}
 
-	public static readonly Dictionary<string, string> TraconCenters = new() {
-		{ "KPCT", "ZDC" },
-		{ "KSCT", "ZLA" },
-		{ "KNCT", "ZOA" },
-		{ "KN90", "ZNY" },
-		{ "KL30", "ZLA" },
-		{ "KA80", "ZTL" },
-		{ "KI90", "ZHU" },
-		{ "KJSD", "ZNY" }, // Damn you Sikorsky
-		{ "KMUI", "ZNY" }
-	};
-
 	public static Way Inflate(this Way w, double radius)
 	{
 		if (w.Nodes.Length < 2)
@@ -190,14 +181,14 @@ internal static class Helpers
 				Id: 0,
 				Latitude: w.Nodes[nodeIdx].Latitude + (dY * radius),
 				Longitude: w.Nodes[nodeIdx].Longitude + (dX * radius),
-				Tags: System.Collections.Frozen.FrozenDictionary<string, string>.Empty
+				Tags: FrozenDictionary<string, string>.Empty
 			);
 
 			newPoints[newPoints.Length - nodeIdx - 1] = new(
 				Id: 0,
 				Latitude: w.Nodes[nodeIdx].Latitude - (dY * radius),
 				Longitude: w.Nodes[nodeIdx].Longitude - (dX * radius),
-				Tags: System.Collections.Frozen.FrozenDictionary<string, string>.Empty
+				Tags: FrozenDictionary<string, string>.Empty
 			);
 		}
 
