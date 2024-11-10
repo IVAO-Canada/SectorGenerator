@@ -18,6 +18,6 @@ public struct Config
 		OutputFolder = Environment.GetEnvironmentVariable("SECTORFILES_FOLDER") ?? "SectorFiles",
 		BoundaryFilePath = null,
 		IvaoApiRefresh = Environment.GetEnvironmentVariable("IVAO_REFRESH") ?? null,
-		SectorAdditionalAirports = JsonSerializer.Deserialize<Dictionary<string, string[]>>(Environment.GetEnvironmentVariable("SECTORFILES_FOLDER") ?? "{}") ?? []
+		SectorAdditionalAirports = JsonSerializer.Deserialize<Dictionary<string, string[]>>(Environment.GetEnvironmentVariable("ADDITIONAL_AIRPORTS") ?? "{}") ?? []
 	};
 }

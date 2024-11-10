@@ -113,6 +113,7 @@ public class Program
 					"PH" => "ZHN",
 					"PA" => "ZAN",
 					"PG" => "ZUA",
+					"MY" => "ZMA",
 					_ => "ZZZ"
 				};
 			}
@@ -174,6 +175,9 @@ public class Program
 			).ToDictionary(
 				kvp => kvp.Key,
 				kvp => kvp.Value.WaysAndBoundaries().ToArray());
+
+		if (artccOsmOnlyIcaos.TryGetValue("ZMA", out var osmOnlyZma))
+			artccOsmOnlyIcaos["ZMA"] = [.. osmOnlyZma, .. apBoundaries.GetFiltered(apb => apb["icao"]?.StartsWith("MY") ?? false).WaysAndBoundaries()];
 
 		Console.WriteLine($" Done!");
 		Console.Write("Generating labels, centerlines, and coastline..."); await Console.Out.FlushAsync();
