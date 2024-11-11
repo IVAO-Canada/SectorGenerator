@@ -80,7 +80,7 @@ public class Program
 		foreach (var (artcc, points) in artccBoundaries)
 			centerAirports.Add(artcc, [..
 				cifp.Aerodromes.Values.Where(a => IsInPolygon(points, ((double)a.Location.Latitude, (double)a.Location.Longitude)))
-					.Concat(config.SectorAdditionalAirports.TryGetValue(artcc, out var addtl) ? addtl.Select(a => cifp.Aerodromes[a]) : [])
+					.Concat(config.SectorAdditionalAirports.TryGetValue(artcc, out var addtl) ? addtl.SelectMany<string, Aerodrome>(a => cifp.Aerodromes.TryGetValue(a, out var r) ? [r] : []) : [])
 			]);
 
 		Console.WriteLine(" Done!");
