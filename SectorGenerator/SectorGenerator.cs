@@ -497,9 +497,9 @@ F;high.artcc
 			);
 
 			// VFR Fixes
-			string vfrBlock = "[VFRFIX]\r\nF;vfr.fix\r\n\r\n";
+			string vfrBlock = "[VFRENR]\r\nF;vfr.vfi\r\n\r\n";
 
-			File.WriteAllLines(Path.Combine(artccFolder, "vfr.fix"), [..
+			File.WriteAllLines(Path.Combine(artccFolder, "vfr.vfi"), [..
 				fixes
 					.Where(f => f.Key.StartsWith("VP"))
 					.Concat(vfrFixes.Select(f => (Key: f.Name, Point: f.GetCoordinate())))
@@ -508,21 +508,24 @@ F;high.artcc
 			]);
 
 			// VFR Routes
-			vfrBlock += "[VFRROUTE]\r\n";
+			vfrBlock += "[VFRROUTE]\r\nF;vfr.vrt\r\n\r\n";
 
 			ICoordinate[][] applicableRoutes = [..
 				vfrRoutes.Where(r => r.Any(c => IsInPolygon(artccBoundaries[artcc], c)))
 			];
 
-			for (int routeIdx = 0; routeIdx < applicableRoutes.Length; ++routeIdx)
-				vfrBlock += string.Join("\r\n", applicableRoutes[routeIdx].Select(r =>
-				{
-					if (r is NamedCoordinate nc)
-						return $"{routeIdx + 1};{nc.Name};{nc.Name};";
+			File.WriteAllLines(
+				Path.Combine(artccFolder, "vfr.vrt"),
+				Enumerable.Range(0, applicableRoutes.Length).Select(routeIdx =>
+					string.Join("\r\n", applicableRoutes[routeIdx].Select(r =>
+					{
+						if (r is NamedCoordinate nc)
+							return $"{routeIdx + 1};{nc.Name};{nc.Name};";
 
-					Coordinate c = r.GetCoordinate();
-					return $"{routeIdx + 1};{c.Latitude:00.0####};{c.Longitude:000.0####};";
-				})) + "\r\n";
+						Coordinate c = r.GetCoordinate();
+						return $"{routeIdx + 1};{c.Latitude:00.0####};{c.Longitude:000.0####};";
+					})))
+			);
 
 			// MRVAs
 			Mrva mrvas = new(artccBoundaries[artcc]);
