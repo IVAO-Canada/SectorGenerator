@@ -7,6 +7,8 @@ internal abstract partial record ManualAdjustment
 {
 	public static IEnumerable<ManualAdjustment> Process(string filecontents)
 	{
+		HashSet<NamedCoordinate> generatedOrphanFixes = [];
+
 		filecontents = filecontents.ReplaceLineEndings("\n");
 		bool NewlinePending() => filecontents.TakeWhile(char.IsWhiteSpace).Contains('\n');
 
@@ -68,6 +70,9 @@ internal abstract partial record ManualAdjustment
 				decimal? distance = null;
 				if (match.Groups.TryGetValue("radial", out var radialGroup) && radialGroup.Success && match.Groups.TryGetValue("distance", out var distanceGroup) && distanceGroup.Success)
 					(radial, distance) = (uint.Parse(radialGroup.Value), decimal.Parse(distanceGroup.Value));
+
+				if (fixName is string ofName && fixCoord is Coordinate ofCoord)
+					generatedOrphanFixes.Add(new(ofName, ofCoord));
 
 				if (fixCoord is Coordinate rCoord && radial is uint rRad && distance is decimal rDist)
 					// Fix radial distance from known point; e.g. (12.3, -123.4)123@4.5
@@ -362,6 +367,9 @@ internal abstract partial record ManualAdjustment
 
 			indent = nextIndentLevel;
 		}
+
+		foreach (NamedCoordinate nc in generatedOrphanFixes)
+			yield return new AddFix(nc.Name, new(nc, null, null));
 	}
 
 	[GeneratedRegex(@"\A(?<fix>([\w/](?!..@))+)?(\((?<lat>[-+]?\d+(\.\d+)[NS]?)\s*[^A-Z0-9]\s*(?<lon>[-+]?\d+(\.\d+)[EW]?)\))?((?<radial>\d{3})@(?<distance>\d+(\.\d+)?))?", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]

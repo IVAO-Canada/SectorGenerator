@@ -88,7 +88,13 @@ public class Program
 			// Fixes
 			foreach (AddFix af in manualAdjustments.Where(a => a is AddFix).Cast<AddFix>())
 				if (cifp.Fixes.TryGetValue(af.Name, out var prevKnownFixes))
-					prevKnownFixes.Add(af.Position.Resolve(cifp));
+				{
+					ICoordinate newFix = af.Position.Resolve(cifp);
+					Coordinate newFixPos = newFix.GetCoordinate();
+
+					if (!prevKnownFixes.Any(pnf => pnf.Latitude == newFixPos.Latitude && pnf.Longitude == newFixPos.Longitude))
+						prevKnownFixes.Add(newFix);
+				}
 				else
 					cifp.Fixes.Add(af.Name, [af.Position.Resolve(cifp)]);
 
@@ -589,7 +595,7 @@ F;online.ply
 					Bounds: ap.Boundary
 				))
 				.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Pos, "TWR", ap.Bounds))
-		)		
+		)
 #endif
 );
 
