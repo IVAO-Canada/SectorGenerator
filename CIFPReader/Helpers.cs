@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 using static CIFPReader.ProcedureLine;
+using static CIFPReader.Extensions;
 
 namespace CIFPReader;
 
@@ -518,6 +519,34 @@ public record UnresolvedDistance(UnresolvedWaypoint Point, decimal NMI) : IProce
 	}
 }
 
+[JsonConverter(typeof(UnresolvedFixRadialDistanceJsonConverter))]
+public record UnresolvedFixRadialDistance(UnresolvedWaypoint Reference, MagneticCourse Bearing, decimal NMI) : IProcedureEndpoint
+{
+	public bool IsConditionReached(PathTermination termination, (Coordinate position, Altitude altitude, dynamic? reference) context, decimal tolerance) =>
+		throw new Exception("Resolve this endpoint first.");
+
+	public Coordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, Dictionary<string, HashSet<Navaid>> navaids, Coordinate? reference = null)
+	{
+		Coordinate fix = Reference.Resolve(fixes, reference).GetCoordinate();
+		return fix.FixRadialDistance(Bearing.Resolve(navaids.GetLocalMagneticVariation(fix).Variation), NMI);
+	}
+
+	public Coordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, Dictionary<string, HashSet<Navaid>> navaids, UnresolvedWaypoint? reference)
+	{
+		Coordinate fix = Reference.Resolve(fixes, reference).GetCoordinate();
+		return fix.FixRadialDistance(Bearing.Resolve(navaids.GetLocalMagneticVariation(fix).Variation), NMI);
+	}
+
+	public class UnresolvedFixRadialDistanceJsonConverter : JsonConverter<UnresolvedFixRadialDistance>
+	{
+		public override UnresolvedFixRadialDistance Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+			throw new JsonException();
+
+		public override void Write(Utf8JsonWriter writer, UnresolvedFixRadialDistance value, JsonSerializerOptions options) =>
+			throw new JsonException();
+	}
+}
+
 public record Distance(ICoordinate? Point, decimal NMI) : IProcedureEndpoint
 {
 	public bool IsConditionReached(PathTermination termination, (Coordinate position, Altitude altitude, dynamic? reference) context, decimal tolerance) =>
@@ -973,7 +1002,7 @@ public record SpeedRestriction(uint? Minimum, uint? Maximum)
 [JsonConverter(typeof(UnresolvedWaypointJsonConverter))]
 public class UnresolvedWaypoint(string name) : IProcedureEndpoint
 {
-	internal string Name { get; init; } = name;
+	public string Name { get; init; } = name;
 	protected Coordinate? Position { get; init; }
 
 	public NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes) => Resolve(fixes, new Coordinate(0, 0));
@@ -989,6 +1018,8 @@ public class UnresolvedWaypoint(string name) : IProcedureEndpoint
 
 	public bool IsConditionReached(PathTermination termination, (Coordinate position, Altitude altitude, dynamic? reference) context, decimal tolerance) =>
 		throw new Exception("Waypoint must be resolved.");
+
+	public override string ToString() => Name;
 
 	public class UnresolvedWaypointJsonConverter : JsonConverter<UnresolvedWaypoint>
 	{

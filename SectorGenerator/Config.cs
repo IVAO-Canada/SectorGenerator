@@ -13,11 +13,14 @@ public struct Config
 
 	public Dictionary<string, string[]> SectorAdditionalAirports { get; set; }
 
+	public string? ManualAdjustmentsFolder { get; set; }
+
 	[JsonIgnore]
 	public static Config Default => new() {
 		OutputFolder = Environment.GetEnvironmentVariable("SECTORFILES_FOLDER") ?? "SectorFiles",
 		BoundaryFilePath = null,
 		IvaoApiRefresh = Environment.GetEnvironmentVariable("IVAO_REFRESH") ?? null,
-		SectorAdditionalAirports = JsonSerializer.Deserialize<Dictionary<string, string[]>>(Environment.GetEnvironmentVariable("ADDITIONAL_AIRPORTS") ?? "{}") ?? []
+		SectorAdditionalAirports = JsonSerializer.Deserialize<Dictionary<string, string[]>>(Environment.GetEnvironmentVariable("ADDITIONAL_AIRPORTS") ?? "{}") ?? [],
+		ManualAdjustmentsFolder = null
 	};
 }

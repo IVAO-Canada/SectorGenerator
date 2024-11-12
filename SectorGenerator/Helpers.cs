@@ -31,6 +31,12 @@ internal static class Helpers
 		(point.Latitude, point.Longitude)
 	);
 
+	public static bool IsInPolygon((double Latitude, double Longitude)[] polygon, ICoordinate point)
+	{
+		Coordinate p = point is Coordinate c ? c : point.GetCoordinate();
+		return IsInPolygon(polygon, ((double)p.Latitude, (double)p.Longitude));
+	}
+
 	/// <seealso cref="https://stackoverflow.com/a/218081/8443457"/>
 	public static bool IsInPolygon((double Latitude, double Longitude)[] polygon, (double Latitude, double Longitude) point)
 	{
@@ -87,7 +93,7 @@ internal static class Helpers
 		? $"{(value >= 0 ? 'E' : 'W')}{(int)Math.Abs(value):000}.{(int)(Math.Abs(value) * 60) % 60:00}.{Math.Abs(value) * 360 % 60:00.000}"
 		: $"{(value >= 0 ? 'N' : 'S')}{(int)Math.Abs(value):00}.{(int)(Math.Abs(value) * 60) % 60:00}.{Math.Abs(value) * 360 % 60:00.000}";
 
-	public static string DMS(decimal value, bool longitude) => Dms((double)value, longitude);
+	public static string Dms(decimal value, bool longitude) => Dms((double)value, longitude);
 
 	/// <summary>
 	/// Gets the distance in nautical miles between two <see cref="OsmSharp.Node">Nodes</see>.

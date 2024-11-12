@@ -26,4 +26,8 @@
     <ProjectReference Include="..\CIFPReader\CIFPReader.csproj" />
   </ItemGroup>
 
+	<ItemGroup>
+		<_CopyItems Include="$(ProjectDir)ManualAdjustments" />
+	</ItemGroup>
+
 </Project>

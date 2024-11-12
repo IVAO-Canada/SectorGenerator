@@ -24,7 +24,7 @@ internal class Osm(OsmData data)
 	nwr[""aeroway""](area.searchArea);
 	>;
 );
-out;")).Filter(i => i["aeroway"] is not null));
+out;", 5)).Filter(i => i["aeroway"] is not null));
 
 	public Osm InRegion((double Latitude, double Longitude)[] boundingRegion)
 	{
