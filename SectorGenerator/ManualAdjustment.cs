@@ -372,7 +372,7 @@ internal abstract partial record ManualAdjustment
 			yield return new AddFix(nc.Name, new(nc, null, null));
 	}
 
-	[GeneratedRegex(@"\A(?<fix>([\w/](?!..@))+)?(\((?<lat>[-+]?\d+(\.\d+)[NS]?)\s*[^A-Z0-9]\s*(?<lon>[-+]?\d+(\.\d+)[EW]?)\))?((?<radial>\d{3})@(?<distance>\d+(\.\d+)?))?", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
+	[GeneratedRegex(@"\A(?<fix>([A-Z0-9/](?!..@))+)?(\((?<lat>[-+]?\d+(\.\d+)?[NS]?)\s*[^A-Z0-9]\s*(?<lon>[-+]?\d+(\.\d+)?[EW]?)\))?((?<radial>\d{3})@(?<distance>\d+(\.\d+)?))?", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
 	public static partial Regex PossibleWaypointRegex();
 
 	[GeneratedRegex(@"\A[^\S\n]*\([^\S\n]*(?<size>[+-]?\d+(\.\d+)?)[^\S\n]*\)[^\S\n]*", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
