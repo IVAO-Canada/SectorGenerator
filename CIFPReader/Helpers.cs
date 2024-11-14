@@ -22,7 +22,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 	public static CIFP Load(string? directory = null)
 	{
 		if (string.IsNullOrWhiteSpace(directory))
-			directory = Environment.CurrentDirectory;
+			directory = "s3://ivao-xa/";
 		else
 			directory = Path.GetFullPath(directory);
 
