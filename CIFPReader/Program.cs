@@ -10,12 +10,12 @@ Console.WriteLine($"Loading completed in {(processed - start).TotalSeconds:0.000
 AmazonS3Client s3 = new();
 foreach (string filename in Directory.EnumerateFiles("cifp"))
 {
-	CancellationTokenSource cts = new(TimeSpan.FromSeconds(20));
-	Console.WriteLine($"Uploading {filename}...");
+	CancellationTokenSource cts = new(TimeSpan.FromSeconds(30));
+	Console.WriteLine($"Uploading {filename} to s3://ivao-xa/{Path.GetFileName(filename)}...");
 	_ = await s3.PutObjectAsync(new() {
 		BucketName = "ivao-xa",
 		Key = Path.GetFileName(filename),
-		InputStream = File.OpenRead(filename),
+		ContentBody = File.ReadAllText(filename),
 		ContentType = "application/json",
 	}, cts.Token);
 	Console.WriteLine("Done!");
