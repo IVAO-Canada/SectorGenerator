@@ -8,11 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Canada\**" />
     <Compile Remove="docker\**" />
-    <EmbeddedResource Remove="Canada\**" />
     <EmbeddedResource Remove="docker\**" />
-    <None Remove="Canada\**" />
     <None Remove="docker\**" />
   </ItemGroup>
 
