@@ -1,4 +1,7 @@
-﻿using System.Collections.Concurrent;
+﻿using Amazon.S3;
+using Amazon.S3.Model;
+
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
@@ -7,7 +10,6 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 using static CIFPReader.ProcedureLine;
-using static CIFPReader.Extensions;
 
 namespace CIFPReader;
 
@@ -21,9 +23,35 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 	{
 		directory ??= Environment.CurrentDirectory;
 
+		if (directory.StartsWith("s3://", StringComparison.InvariantCultureIgnoreCase))
+		{
+			Task t = Task.Run(async () =>
+			{
+				directory = directory[5..];
+				string bucketName = directory.Split('/')[0];
+				string prefix = directory[bucketName.Length..];
+				AmazonS3Client s3 = new();
+				directory = Environment.CurrentDirectory;
+
+				foreach (S3Object s3obj in (await s3.ListObjectsV2Async(new() { BucketName = bucketName, Prefix = prefix })).S3Objects)
+				{
+					var getResp = await s3.GetObjectAsync(s3obj.BucketName, s3obj.Key);
+
+					string outpath = Path.Combine(directory, "cifp", Path.GetFileName(s3obj.Key));
+					if (File.Exists(outpath))
+						File.Delete(outpath);
+
+					await getResp.WriteResponseStreamToFileAsync(outpath, false, CancellationToken.None);
+				}	
+			});
+
+			t.Wait(TimeSpan.FromSeconds(10));
+		}
+
 		string zipPath = Path.Combine(directory, "CIFP.zip"),
 			   cifpPath = Path.Combine(directory, "FAACIFP18"),
 			   outputPath = Path.Combine(directory, "cifp");
+
 		if (File.Exists(zipPath))
 		{
 			using (ZipArchive archive = ZipFile.OpenRead(zipPath))
