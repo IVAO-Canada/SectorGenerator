@@ -1052,8 +1052,11 @@ public record AirportMSA(string Client,
 				throw new ArgumentException("MSA sector must be 11 characters.", nameof(data));
 
 			if (!decimal.TryParse(data[0..3], out decimal anticlockwiseRaw) || !decimal.TryParse(data[3..6], out decimal clockwiseRaw)
-			 || !int.TryParse(data[6..9], out int altitude) || !decimal.TryParse(data[9..11], out decimal radius))
+			 || !int.TryParse(data[6..9], out int altitude))
 				throw new ArgumentException("MSA sector has invalid parameters.", nameof(data));
+
+			if (!decimal.TryParse(data[9..11], out decimal radius))
+				radius = 0;
 
 			MagneticCourse anticlockwiseLimit = new(anticlockwiseRaw, null);
 			MagneticCourse clockwiseLimit = new(clockwiseRaw, null);

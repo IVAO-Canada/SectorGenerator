@@ -1,6 +1,4 @@
 ﻿#define OSM
-using CIFPReader;
-
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Text;
@@ -8,6 +6,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 
 using WSleeman.Osm;
+
+using CIFPReader;
 
 using static SectorGenerator.Helpers;
 
@@ -736,7 +736,6 @@ F;online.ply
 				if (next is null)
 					fileContents.AppendLine("// BREAK");
 				else if (last is Coordinate l && next is Coordinate n)
-					//fileContents.AppendLine($"{Dms(l.Latitude, false)};{Dms(l.Longitude, true)};{Dms(n.Latitude, false)};{Dms(n.Longitude, true)};");
 					fileContents.AppendLine($"{l.Latitude:00.0####};{l.Longitude:000.0####};{n.Latitude:00.0####};{n.Longitude:000.0####};{layerName};");
 
 				last = next;

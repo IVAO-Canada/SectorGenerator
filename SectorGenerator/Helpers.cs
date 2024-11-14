@@ -1,12 +1,10 @@
-﻿using CIFPReader;
-
-using Clipper2Lib;
-
-using System.Collections.Frozen;
+﻿using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 
+using CIFPReader;
+using Clipper2Lib;
 using WSleeman.Osm;
 
 namespace SectorGenerator;
@@ -42,6 +40,9 @@ internal static class Helpers
 	/// <seealso cref="https://stackoverflow.com/a/218081/8443457"/>
 	public static bool IsInPolygon((double Latitude, double Longitude)[] polygon, (double Latitude, double Longitude) point)
 	{
+		if (polygon.Length == 0)
+			return false;
+
 		double minLat = polygon.Min(p => p.Latitude), maxLat = polygon.Max(p => p.Latitude),
 			  minLon = polygon.Min(p => p.Longitude), maxLon = polygon.Max(p => p.Longitude);
 

@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
+using static CIFPReader.AltitudeRestriction;
 using static CIFPReader.ProcedureLine;
 
 namespace CIFPReader;
@@ -22,7 +23,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 	public static CIFP Load(string? directory = null)
 	{
 		if (string.IsNullOrWhiteSpace(directory))
-			directory = "s3://ivao-xa/";
+			directory = Environment.CurrentDirectory;
 		else
 			directory = Path.GetFullPath(directory);
 
@@ -266,12 +267,16 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 				{
 					if (awAccumulator.Count != 0)
 					{
+						if (awAccumulator.Count > 1)
+						{
 						Airway aw = new(procName, [.. awAccumulator], Fixes);
 
 						if (!Airways.ContainsKey(aw.Identifier))
 							Airways.Add(aw.Identifier, []);
 
 						Airways[aw.Identifier].Add(aw);
+						}
+						
 						awAccumulator.Clear();
 					}
 
@@ -891,6 +896,7 @@ public record Arc(ICoordinate? Centerpoint, UnresolvedWaypoint? Centerwaypoint, 
 	}
 }
 
+[JsonConverter(typeof(AltitudeRestrictionJsonConverter))]
 public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 {
 	public static AltitudeRestriction Unrestricted => new(null, null);
@@ -994,7 +1000,50 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 
 		return new(min is null ? null : new AltitudeMSL(min.Value), max is null ? null : new AltitudeMSL(max.Value));
 	}
+
+	public class AltitudeRestrictionJsonConverter : JsonConverter<AltitudeRestriction>
+	{
+		public override AltitudeRestriction? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+		{
+			if (reader.TokenType == JsonTokenType.Null && reader.Read())
+				return Unrestricted;
+			else if (reader.TokenType != JsonTokenType.StartArray || !reader.Read())
+				throw new JsonException();
+
+			Altitude? minimum = (reader.TokenType == JsonTokenType.Null && reader.Read()) ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
+			Altitude? maximum = (reader.TokenType == JsonTokenType.Null && reader.Read()) ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
+
+			if (reader.TokenType != JsonTokenType.EndArray || !reader.Read())
+				throw new JsonException();
+
+			return new(minimum, maximum);
+		}
+
+		public override void Write(Utf8JsonWriter writer, AltitudeRestriction value, JsonSerializerOptions options)
+		{
+			if (value.IsUnrestricted)
+				writer.WriteNullValue();
+			else
+			{
+				writer.WriteStartArray();
+
+				if (value.Minimum is Altitude min)
+					JsonSerializer.Serialize(writer, min, options);
+				else
+					writer.WriteNullValue();
+
+				if (value.Maximum is Altitude max)
+					JsonSerializer.Serialize(writer, max, options);
+				else
+					writer.WriteNullValue();
+
+				writer.WriteEndArray();
+			}
+		}
+	}
 }
+
+[JsonConverter(typeof(SpeedRestrictionJsonConverter))]
 public record SpeedRestriction(uint? Minimum, uint? Maximum)
 {
 	public static SpeedRestriction Unrestricted => new(null, null);
@@ -1027,6 +1076,47 @@ public record SpeedRestriction(uint? Minimum, uint? Maximum)
 			max = uint.Parse(data.Split().Last()[..^2]);
 
 		return new(min, max);
+	}
+
+	public class SpeedRestrictionJsonConverter : JsonConverter<SpeedRestriction>
+	{
+		public override SpeedRestriction? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+		{
+			if (reader.TokenType == JsonTokenType.Null && reader.Read())
+				return Unrestricted;
+			else if (reader.TokenType != JsonTokenType.StartArray || !reader.Read())
+				throw new JsonException();
+
+			uint? minimum = reader.TokenType == JsonTokenType.Null ? null : reader.TokenType == JsonTokenType.Number ? reader.GetUInt32() : throw new JsonException();
+			uint? maximum = reader.TokenType == JsonTokenType.Null ? null : reader.TokenType == JsonTokenType.Number ? reader.GetUInt32() : throw new JsonException();
+
+			if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray || !reader.Read())
+				throw new JsonException();
+
+			return new(minimum, maximum);
+		}
+
+		public override void Write(Utf8JsonWriter writer, SpeedRestriction value, JsonSerializerOptions options)
+		{
+			if (value.IsUnrestricted)
+				writer.WriteNullValue();
+			else
+			{
+				writer.WriteStartArray();
+
+				if (value.Minimum is uint min)
+					writer.WriteNumberValue(min);
+				else
+					writer.WriteNullValue();
+
+				if (value.Maximum is uint max)
+					writer.WriteNumberValue(max);
+				else
+					writer.WriteNullValue();
+
+				writer.WriteEndArray();
+			}
+		}
 	}
 }
 
@@ -1085,7 +1175,7 @@ public static class Extensions
 
 		if (refCoord is not null)
 		{
-			coord = value.MinBy(wp => wp.GetCoordinate().DistanceTo(refCoord.Value)) switch {
+			coord = value.MinBy(wp => wp.DistanceTo(refCoord.Value)) switch {
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null
