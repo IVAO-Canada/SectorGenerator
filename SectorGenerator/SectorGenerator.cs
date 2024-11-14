@@ -37,46 +37,69 @@ public class Program
 		}
 
 		// Long loading threads in parallel!
+		Console.Write("Downloading CIFPs..."); await Console.Out.FlushAsync();
 		CIFP? cifp = null;
-#if OSM
-		Console.Write("Downloading ARTCC boundaries, CIFPs, and OSM data..."); await Console.Out.FlushAsync();
-		Osm? osm = null;
-#else
-		Console.Write("Downloading ARTCC boundaries and CIFPs..."); await Console.Out.FlushAsync();
-#endif
-		Dictionary<string, (double Latitude, double Longitude)[]> artccBoundaries = [];
-		Dictionary<string, string[]> artccNeighbours = [];
-		string[] faaArtccs = [];
-
 		for (int iterations = 0; iterations < 3; ++iterations)
 		{
 			try
 			{
-				await Task.WhenAll([
-					Task.Run(async () => { (artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath); Console.Write(" ERAM"); }),
-					Task.Run(() => { cifp ??= CIFP.Load(); Console.Write(" CIFP"); }),
-#if OSM
-					Task.Run(async () => { osm ??= await Osm.Load(); Console.Write(" OSM"); })
-#endif
-				]);
+				cifp = CIFP.Load();
 				break;
 			}
 			catch (TimeoutException) { /* Sometimes things choke. */ }
 			catch (TaskCanceledException) { /* Sometimes things choke. */ }
 		}
 
-		// Keep the compiler happy with fallback checks.
-		if (
-			cifp is null
+		if (cifp is null)
+			throw new Exception("Could not download CIFPs.");
+
+		Console.WriteLine(" Done!");
+
 #if OSM
-			|| osm is null
-#endif
-		)
+		Console.Write("Downloading OSM data..."); await Console.Out.FlushAsync();
+		Osm? osm = null;
+
+		for (int iterations = 0; iterations < 3; ++iterations)
 		{
-			Console.WriteLine(" FAILED!");
-			return;
+			try
+			{
+				osm = await Osm.Load();
+				break;
+			}
+			catch (TimeoutException) { /* Sometimes things choke. */ }
+			catch (TaskCanceledException) { /* Sometimes things choke. */ }
+		}
+
+		if (osm is null)
+			throw new Exception("Could not download OSM data.");
+
+		Console.WriteLine(" Done!");
+#endif
+
+		Console.Write("Downloading ERAM data..."); await Console.Out.FlushAsync();
+		Dictionary<string, (double Latitude, double Longitude)[]> artccBoundaries = [];
+		Dictionary<string, string[]> artccNeighbours = [];
+		string[] faaArtccs = [];
+		for (int iterations = 0; iterations < 3; ++iterations)
+		{
+			try
+			{
+				(artccBoundaries, artccNeighbours, faaArtccs) = await ArtccBoundaries.GetBoundariesAsync(config.BoundaryFilePath);
+				break;
+			}
+			catch (TimeoutException) { /* Sometimes things choke. */ }
+			catch (TaskCanceledException) { /* Sometimes things choke. */ }
+
+			if (iterations == 2)
+				throw new Exception("Could not download ERAM data.");
 		}
 		Console.WriteLine(" Done!");
+
+		foreach (var runway in cifp.Runways.Values.SelectMany(r => r))
+			if (cifp.Fixes.TryGetValue($"{runway.Airport}/RW{runway.Identifier}", out var rwyFixes))
+				rwyFixes.Add(runway.Endpoint);
+			else
+				cifp.Fixes[$"{runway.Airport}/RW{runway.Identifier}"] = [runway.Endpoint];
 
 		HashSet<NamedCoordinate> vfrFixes = [];
 		HashSet<ICoordinate[]> vfrRoutes = [];
@@ -605,7 +628,7 @@ F;online.ply
 				.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Pos, "TWR", ap.Bounds))
 		)
 #endif
-);
+		);
 
 			File.WriteAllText(Path.Combine(config.OutputFolder, $"{ArtccIcao(artcc)}.isc"), $@"{infoBlock}
 {defineBlock}

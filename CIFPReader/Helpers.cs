@@ -1010,10 +1010,14 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 			else if (reader.TokenType != JsonTokenType.StartArray || !reader.Read())
 				throw new JsonException();
 
-			Altitude? minimum = (reader.TokenType == JsonTokenType.Null && reader.Read()) ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
-			Altitude? maximum = (reader.TokenType == JsonTokenType.Null && reader.Read()) ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
+			Altitude? minimum = reader.TokenType == JsonTokenType.Null ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
 
-			if (reader.TokenType != JsonTokenType.EndArray || !reader.Read())
+			if (!reader.Read())
+				throw new JsonException();
+
+			Altitude? maximum = reader.TokenType == JsonTokenType.Null ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
+
+			if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray)
 				throw new JsonException();
 
 			return new(minimum, maximum);
@@ -1088,9 +1092,13 @@ public record SpeedRestriction(uint? Minimum, uint? Maximum)
 				throw new JsonException();
 
 			uint? minimum = reader.TokenType == JsonTokenType.Null ? null : reader.TokenType == JsonTokenType.Number ? reader.GetUInt32() : throw new JsonException();
+
+			if (!reader.Read())
+				throw new JsonException();
+
 			uint? maximum = reader.TokenType == JsonTokenType.Null ? null : reader.TokenType == JsonTokenType.Number ? reader.GetUInt32() : throw new JsonException();
 
-			if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray || !reader.Read())
+			if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray)
 				throw new JsonException();
 
 			return new(minimum, maximum);
@@ -1175,7 +1183,7 @@ public static class Extensions
 
 		if (refCoord is not null)
 		{
-			coord = value.MinBy(wp => wp.DistanceTo(refCoord.Value)) switch {
+			coord = value.MinBy(wp => wp.GetCoordinate().DistanceTo(refCoord.Value)) switch {
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null

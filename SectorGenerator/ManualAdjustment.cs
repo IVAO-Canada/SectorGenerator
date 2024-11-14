@@ -209,6 +209,35 @@ internal abstract partial record ManualAdjustment
 
 						return new GeoConnector.Arrow([.. arrowWaypoints], arrowSize);
 
+					case "ARC":
+						if (filecontents[0] != '(' || !(char.ToUpperInvariant(filecontents[1..].TrimStart()[0]) is 'N' or 'S' or 'E' or 'W') || filecontents[1..].TrimStart()[1..].TrimStart()[0] != ')')
+						{
+							Console.WriteLine($"ERROR! Expected (<DIRECTION>) after ARC in {context}.");
+							filecontents = filecontents[filecontents.TakeWhile(c => c != '\n').Count()..];
+							return null;
+						}
+						filecontents = filecontents[1..].TrimStart();
+
+						GeoConnector.Arc.Direction direction = char.ToUpperInvariant(filecontents[0]) switch {
+							'N' => GeoConnector.Arc.Direction.North,
+							'S' => GeoConnector.Arc.Direction.South,
+							'E' => GeoConnector.Arc.Direction.East,
+							'W' => GeoConnector.Arc.Direction.West,
+							_ => throw new NotImplementedException()
+						};
+						filecontents = filecontents[(filecontents.TakeWhile(c => c != ')').Count() + 1)..].TrimStart();
+
+						List<PossiblyResolvedWaypoint> arcWaypoints = [];
+
+						while (filecontents.Length > 0 && !NewlinePending() && ReadWaypoint($"point on arc in {context}") is PossiblyResolvedWaypoint awp)
+							arcWaypoints.Add(awp);
+
+						if (filecontents.Length > 0 && !NewlinePending())
+							return null;
+
+						return new GeoConnector.Arc([.. arcWaypoints], direction);
+
+
 					default:
 						Console.WriteLine($"ERROR! Unknown geo type {geoType} in {context}.");
 						filecontents = filecontents[filecontents.TakeWhile(c => c != '\n').Count()..];
@@ -219,8 +248,17 @@ internal abstract partial record ManualAdjustment
 			switch (header)
 			{
 				case "FIX":
-					string fixname = new string([.. filecontents.TakeWhile(c => c != ':' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
-					filecontents = filecontents[fixname.Length..].TrimStart();
+					string fixname;
+					if (filecontents[0] == '"')
+					{
+						fixname = filecontents[1..].Split('"')[0];
+						filecontents = filecontents[(fixname.Length + 2)..].TrimStart([' ', '\t']);
+					}
+					else
+					{
+						fixname = new string([.. filecontents.TakeWhile(c => c != ':' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
+						filecontents = filecontents[fixname.Length..].TrimStart([' ', '\t']);
+					}
 
 					if (filecontents[0] != ':')
 					{
@@ -254,8 +292,17 @@ internal abstract partial record ManualAdjustment
 					break;
 
 				case "VFRFIX":
-					string vfrfixname = new string([.. filecontents.TakeWhile(c => c != ':' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
-					filecontents = filecontents[vfrfixname.Length..].TrimStart();
+					string vfrfixname;
+					if (filecontents[0] == '"')
+					{
+						vfrfixname = filecontents[1..].Split('"')[0];
+						filecontents = filecontents[(vfrfixname.Length + 2)..].TrimStart([' ', '\t']);
+					}
+					else
+					{
+						vfrfixname = new string([.. filecontents.TakeWhile(c => c != ':' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
+						filecontents = filecontents[vfrfixname.Length..].TrimStart([' ', '\t']);
+					}
 
 					if (filecontents[0] != ':')
 					{
@@ -319,8 +366,17 @@ internal abstract partial record ManualAdjustment
 					break;
 
 				case "GEO":
-					string geoTag = new string([.. filecontents.TakeWhile(c => c != ':' && c != '(' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
-					filecontents = filecontents[geoTag.Length..].TrimStart();
+					string geoTag;
+					if (filecontents[0] == '"')
+					{
+						geoTag = filecontents[1..].Split('"')[0];
+						filecontents = filecontents[(geoTag.Length + 2)..].TrimStart([' ', '\t']);
+					}
+					else
+					{
+						geoTag = new string([.. filecontents.TakeWhile(c => c != ':' && c != '(' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
+						filecontents = filecontents[geoTag.Length..].TrimStart([' ', '\t']);
+					}
 
 					string colour = "#FF999999";
 					if (filecontents[0] == '(')
@@ -647,6 +703,42 @@ internal abstract record GeoConnector(PossiblyResolvedWaypoint[] Points) : IDraw
 				yield return to.FixRadialDistance(direction + 30m, Size);
 				yield return to;
 				yield return to.FixRadialDistance(direction - 30m, Size);
+				yield return to;
+			}
+		}
+	}
+
+	public sealed record Arc(PossiblyResolvedWaypoint[] Points, Arc.Direction Towards) : GeoConnector(Points)
+	{
+		public enum Direction : ushort
+		{
+			North = 0,
+			South = 180,
+			East = 90,
+			West = 270
+		}
+
+		public override IEnumerable<Coordinate?> Draw()
+		{
+			if (_resolvedPoints.Length == 0) yield break;
+
+			yield return _resolvedPoints[0];
+
+			if (_resolvedPoints.Length == 1) yield break;
+
+			foreach (var (from, to) in _resolvedPoints[..^1].Zip(_resolvedPoints[1..]))
+			{
+				var fromToTo = from.GetBearingDistance(to);
+				Coordinate centerpoint = from.FixRadialDistance(fromToTo.bearing ?? new(0), fromToTo.distance / 2);
+
+				TrueCourse startAngle = centerpoint.GetBearingDistance(from).bearing ?? new(0),
+							 endAngle = centerpoint.GetBearingDistance(to).bearing ?? new(0);
+				int step = Math.Sign(startAngle.Angle(new TrueCourse((decimal)Towards)));
+				step = (step == 0 ? 1 : step) * 15;
+
+				for (Course angle = startAngle; (int)angle.Degrees % 360 != (int)endAngle.Degrees % 360; angle += (Math.Abs(endAngle.Angle(angle)) < Math.Abs(step)) ? angle.Angle(endAngle) : step)
+					yield return centerpoint.FixRadialDistance(angle, fromToTo.distance / 2);
+
 				yield return to;
 			}
 		}
