@@ -1,13 +1,13 @@
-using CIFPReader;
-
 using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 
+using CIFPReader;
+using Clipper2Lib;
 using WSleeman.Osm;
 
-namespace CIFPReader;
+namespace SectorGenerator;
 
 internal static class Helpers
 {
@@ -30,6 +30,12 @@ internal static class Helpers
 		[.. polygon.Nodes.Select(n => (n.Latitude, n.Longitude))],
 		(point.Latitude, point.Longitude)
 	);
+
+	public static bool IsInPolygon((double Latitude, double Longitude)[] polygon, ICoordinate point)
+	{
+		Coordinate p = point is Coordinate c ? c : point.GetCoordinate();
+		return IsInPolygon(polygon, ((double)p.Latitude, (double)p.Longitude));
+	}
 
 	/// <seealso cref="https://stackoverflow.com/a/218081/8443457"/>
 	public static bool IsInPolygon((double Latitude, double Longitude)[] polygon, (double Latitude, double Longitude) point)
@@ -90,7 +96,7 @@ internal static class Helpers
 		? $"{(value >= 0 ? 'E' : 'W')}{(int)Math.Abs(value):000}.{(int)(Math.Abs(value) * 60) % 60:00}.{Math.Abs(value) * 360 % 60:00.000}"
 		: $"{(value >= 0 ? 'N' : 'S')}{(int)Math.Abs(value):00}.{(int)(Math.Abs(value) * 60) % 60:00}.{Math.Abs(value) * 360 % 60:00.000}";
 
-	public static string DMS(decimal value, bool longitude) => Dms((double)value, longitude);
+	public static string Dms(decimal value, bool longitude) => Dms((double)value, longitude);
 
 	/// <summary>
 	/// Gets the distance in nautical miles between two <see cref="OsmSharp.Node">Nodes</see>.
@@ -128,71 +134,13 @@ internal static class Helpers
 		if (w.Nodes.Length < 2)
 			return w with { Nodes = w.Nodes };
 
-		Node[] newPoints = new Node[w.Nodes.Length * 2];
-
-		static (double dY, double dX) NormalBisectClockwise((double dY, double dX) prevVec, (double dY, double dX) nextVec, double referenceLat)
-		{
-			double skew = Math.Cos(referenceLat * Math.PI / 180);
-			prevVec = (prevVec.dY, prevVec.dX * skew);
-			nextVec = (nextVec.dY, nextVec.dX * skew);
-
-			double dot = prevVec.dX * nextVec.dX + prevVec.dY * nextVec.dY;
-			double det = prevVec.dX * nextVec.dY - prevVec.dY * nextVec.dX;
-			double angleBetweenVectorsRad = Math.Atan2(-det, -dot) + Math.PI;
-			var bisectRotationRad = Math.SinCos(angleBetweenVectorsRad / 2);
-
-			var bisectVector = (
-				dY: prevVec.dY * bisectRotationRad.Cos - prevVec.dX * bisectRotationRad.Sin,
-				dX: prevVec.dX * bisectRotationRad.Cos + prevVec.dY * bisectRotationRad.Sin
-			);
-
-			double bisectVectorLength = Math.Sqrt(bisectVector.dY * bisectVector.dY + bisectVector.dX * bisectVector.dX);
-
-			if (bisectVectorLength == 0)
-				return (0, 0);
-			else
-				return (
-					bisectVector.dY / bisectVectorLength,
-					bisectVector.dX / bisectVectorLength
-				);
-		}
-
-
-		for (int nodeIdx = 0; nodeIdx < w.Nodes.Length; ++nodeIdx)
-		{
-			(double Lat, double Lon) vecToNext, vecToPrev;
-
-			if (nodeIdx < w.Nodes.Length - 1)
-				vecToNext = (w.Nodes[nodeIdx + 1].Latitude - w.Nodes[nodeIdx].Latitude, w.Nodes[nodeIdx + 1].Longitude - w.Nodes[nodeIdx].Longitude);
-			else
-				vecToNext = (0, 0); // Keep the compiler happy.
-
-			if (nodeIdx > 0)
-				vecToPrev = (w.Nodes[nodeIdx - 1].Latitude - w.Nodes[nodeIdx].Latitude, w.Nodes[nodeIdx - 1].Longitude - w.Nodes[nodeIdx].Longitude);
-			else
-				vecToPrev = (-vecToNext.Lat, -vecToNext.Lon);
-
-			if (nodeIdx >= w.Nodes.Length - 1)
-				vecToNext = (-vecToPrev.Lat, -vecToPrev.Lon);
-
-			var (dY, dX) = NormalBisectClockwise(vecToPrev, vecToNext, w.Nodes[0].Latitude);
-
-			newPoints[nodeIdx] = new(
-				Id: 0,
-				Latitude: w.Nodes[nodeIdx].Latitude + (dY * radius),
-				Longitude: w.Nodes[nodeIdx].Longitude + (dX * radius),
-				Tags: FrozenDictionary<string, string>.Empty
-			);
-
-			newPoints[newPoints.Length - nodeIdx - 1] = new(
-				Id: 0,
-				Latitude: w.Nodes[nodeIdx].Latitude - (dY * radius),
-				Longitude: w.Nodes[nodeIdx].Longitude - (dX * radius),
-				Tags: FrozenDictionary<string, string>.Empty
-			);
-		}
-
-		return w with { Nodes = newPoints };
+		return w with {
+			Nodes = [..Clipper.InflatePaths(
+				[[.. w.Nodes.Select(n => new PointD(n.Longitude, n.Latitude))]],
+				radius, JoinType.Round, EndType.Butt,
+				precision: 6
+			)[0].Select(p => new Node(0, p.y, p.x, FrozenDictionary<string, string>.Empty))]
+		};
 	}
 
 	public static Way? TryFabricateBoundary(this Relation r)

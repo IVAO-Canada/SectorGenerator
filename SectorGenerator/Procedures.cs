@@ -1,8 +1,9 @@
 #define EMIT_TRANSITIONS
 
+using CIFPReader;
 using static CIFPReader.Procedure;
 
-namespace CIFPReader;
+namespace SectorGenerator;
 internal class Procedures(CIFP cifp)
 {
 	private readonly CIFP _cifp = cifp;

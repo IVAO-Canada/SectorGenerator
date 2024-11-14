@@ -1,10 +1,12 @@
 using System.Text;
 using System.Text.Json.Nodes;
 
-using static CIFPReader.ControlledAirspace;
-using static CIFPReader.Helpers;
+using CIFPReader;
 
-namespace CIFPReader;
+using static CIFPReader.ControlledAirspace;
+using static SectorGenerator.Helpers;
+
+namespace SectorGenerator;
 
 internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 {

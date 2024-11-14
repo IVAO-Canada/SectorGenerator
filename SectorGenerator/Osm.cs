@@ -3,9 +3,9 @@ using System.Collections.Frozen;
 
 using WSleeman.Osm;
 
-using static CIFPReader.Helpers;
+using static SectorGenerator.Helpers;
 
-namespace CIFPReader;
+namespace SectorGenerator;
 
 internal class Osm(OsmData data)
 {

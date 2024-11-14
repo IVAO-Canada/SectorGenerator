@@ -27,7 +27,7 @@ public class Procedure
 	public virtual IEnumerable<Instruction?> SelectAllRoutes(Dictionary<string, HashSet<ICoordinate>> fixes) =>
 		instructions.AsEnumerable().Select(i => i);
 
-	public record Instruction(PathTermination Termination, IProcedureEndpoint? Endpoint, IProcedureVia? Via, ICoordinate? ReferencePoint, SpeedRestriction Speed, AltitudeRestriction Altitude, bool OnGround = false)
+	public record Instruction(PathTermination Termination, IProcedureEndpoint? Endpoint, IProcedureVia? Via, ICoordinate? ReferencePoint, SpeedRestriction Speed, AltitudeRestriction Altitude, [property:JsonIgnore] bool OnGround = false)
 	{
 		public bool IsComplete(Coordinate position, Altitude altitude, decimal tolerance)
 		{
@@ -54,7 +54,7 @@ public class Procedure
 			Procedure? retval = proctype switch {
 				"SID" => JsonSerializer.Deserialize<SID>(ref reader, options),
 				"STAR" => JsonSerializer.Deserialize<STAR>(ref reader, options),
-				"Approach" => JsonSerializer.Deserialize<Approach>(ref reader, options),
+				"IAP" => JsonSerializer.Deserialize<Approach>(ref reader, options),
 				_ => throw new JsonException()
 			};
 
@@ -73,20 +73,20 @@ public class Procedure
 			switch (value)
 			{
 				case SID s:
-					writer.WriteString("ProcType", "SID");
-					writer.WritePropertyName("Data");
+					writer.WriteString("type", "SID");
+					writer.WritePropertyName("$");
 					JsonSerializer.Serialize(writer, s, options);
 					break;
 
 				case STAR s:
-					writer.WriteString("ProcType", "STAR");
-					writer.WritePropertyName("Data");
+					writer.WriteString("type", "STAR");
+					writer.WritePropertyName("$");
 					JsonSerializer.Serialize(writer, s, options);
 					break;
 
 				case Approach a:
-					writer.WriteString("ProcType", "Approach");
-					writer.WritePropertyName("Data");
+					writer.WriteString("type", "IAP");
+					writer.WritePropertyName("$");
 					JsonSerializer.Serialize(writer, a, options);
 					break;
 
@@ -398,22 +398,22 @@ public class SID : Procedure
 						name = reader.GetString() ?? throw new JsonException();
 						break;
 
-					case "Airport":
+					case "Ap":
 						reader.Read();
 						airport = reader.GetString() ?? throw new JsonException();
 						break;
 
-					case "RunwayTransitions":
+					case "RwTrans":
 						reader.Read();
 						runwayTransitions = JsonSerializer.Deserialize<Dictionary<string, Instruction[]>>(ref reader, options) ?? throw new JsonException();
 						break;
 
-					case "CommonRoute":
+					case "Common":
 						reader.Read();
 						commonRoute = JsonSerializer.Deserialize<Instruction[]>(ref reader, options) ?? throw new JsonException();
 						break;
 
-					case "EnrouteTransitions":
+					case "EnrTrans":
 						reader.Read();
 						enrouteTransitions = JsonSerializer.Deserialize<Dictionary<string, Instruction[]>>(ref reader, options) ?? throw new JsonException();
 						break;
@@ -434,15 +434,15 @@ public class SID : Procedure
 			writer.WriteStartObject();
 
 			writer.WriteString("Name", value.Name);
-			writer.WriteString("Airport", value.Airport);
+			writer.WriteString("Ap", value.Airport);
 
-			writer.WritePropertyName("RunwayTransitions");
+			writer.WritePropertyName("RwTrans");
 			JsonSerializer.Serialize(writer, value.runwayTransitions, options);
 
-			writer.WritePropertyName("CommonRoute");
+			writer.WritePropertyName("Common");
 			JsonSerializer.Serialize(writer, value.commonRoute, options);
 
-			writer.WritePropertyName("EnrouteTransitions");
+			writer.WritePropertyName("EnrTrans");
 			JsonSerializer.Serialize(writer, value.enrouteTransitions, options);
 
 			writer.WriteEndObject();
@@ -723,22 +723,22 @@ public class STAR : Procedure
 						name = reader.GetString() ?? throw new JsonException();
 						break;
 
-					case "Airport":
+					case "Ap":
 						reader.Read();
 						airport = reader.GetString() ?? throw new JsonException();
 						break;
 
-					case "EnrouteTransitions":
+					case "EnrTrans":
 						reader.Read();
 						enrouteTransitions = JsonSerializer.Deserialize<Dictionary<string, Instruction[]>>(ref reader, options) ?? throw new JsonException();
 						break;
 
-					case "CommonRoute":
+					case "Common":
 						reader.Read();
 						commonRoute = JsonSerializer.Deserialize<Instruction[]>(ref reader, options) ?? throw new JsonException();
 						break;
 
-					case "RunwayTransitions":
+					case "RwTrans":
 						reader.Read();
 						runwayTransitions = JsonSerializer.Deserialize<Dictionary<string, Instruction[]>>(ref reader, options) ?? throw new JsonException();
 						break;
@@ -759,15 +759,15 @@ public class STAR : Procedure
 			writer.WriteStartObject();
 
 			writer.WriteString("Name", value.Name);
-			writer.WriteString("Airport", value.Airport);
+			writer.WriteString("Ap", value.Airport);
 
-			writer.WritePropertyName("EnrouteTransitions");
+			writer.WritePropertyName("EnrTrans");
 			JsonSerializer.Serialize(writer, value.enrouteTransitions, options);
 
-			writer.WritePropertyName("CommonRoute");
+			writer.WritePropertyName("Common");
 			JsonSerializer.Serialize(writer, value.commonRoute, options);
 
-			writer.WritePropertyName("RunwayTransitions");
+			writer.WritePropertyName("RwTrans");
 			JsonSerializer.Serialize(writer, value.runwayTransitions, options);
 
 			writer.WriteEndObject();
@@ -1009,17 +1009,17 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 						name = reader.GetString() ?? throw new JsonException();
 						break;
 
-					case "Airport":
+					case "Ap":
 						reader.Read();
 						airport = reader.GetString() ?? throw new JsonException();
 						break;
 
-					case "Transitions":
+					case "Trans":
 						reader.Read();
 						transitions = JsonSerializer.Deserialize<Dictionary<string, Instruction[]>>(ref reader, options) ?? throw new JsonException();
 						break;
 
-					case "CommonRoute":
+					case "Common":
 						reader.Read();
 						commonRoute = JsonSerializer.Deserialize<Instruction[]>(ref reader, options) ?? throw new JsonException();
 						break;
@@ -1040,12 +1040,12 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 			writer.WriteStartObject();
 
 			writer.WriteString("Name", value.Name);
-			writer.WriteString("Airport", value.Airport);
+			writer.WriteString("Ap", value.Airport);
 
-			writer.WritePropertyName("Transitions");
+			writer.WritePropertyName("Trans");
 			JsonSerializer.Serialize(writer, value.transitions, options);
 
-			writer.WritePropertyName("CommonRoute");
+			writer.WritePropertyName("Common");
 			JsonSerializer.Serialize(writer, value.commonRoute, options);
 
 			writer.WriteEndObject();

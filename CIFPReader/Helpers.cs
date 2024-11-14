@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -295,25 +294,6 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 						sl.RecommandedNavaid is null ? null : new NamedCoordinate(sl.RecommandedNavaid, new(sl.RecommandedNavaidLatitude!.Value, sl.RecommandedNavaidLongitude!.Value))
 					);
 				}));
-			}),
-			Task.Run(() =>
-			{
-				// Waypoints
-
-				//			if (!Fixes.ContainsKey(wp.Identifier))
-				//				Fixes.Add(wp.Identifier, []);
-				//			Fixes[wp.Identifier].Add(wp.Position);
-				//			break;
-
-				//		case PathPoint pp:
-				//			if (!Fixes.ContainsKey(pp.Runway))
-				//				Fixes.Add(pp.Runway, []);
-				//			if (!Fixes.ContainsKey(pp.Airport + "/" + pp.Runway))
-				//				Fixes.Add(pp.Airport + "/" + pp.Runway, []);
-
-				//			Fixes[pp.Runway].Add(pp.Position);
-				//			Fixes[pp.Airport + "/" + pp.Runway].Add(pp.Position);
-				//			break;
 			}),
 			Task.Run(() =>
 			{
@@ -635,6 +615,34 @@ public record UnresolvedDistance(UnresolvedWaypoint Point, decimal NMI) : IProce
 	}
 }
 
+[JsonConverter(typeof(UnresolvedFixRadialDistanceJsonConverter))]
+public record UnresolvedFixRadialDistance(UnresolvedWaypoint Reference, MagneticCourse Bearing, decimal NMI) : IProcedureEndpoint
+{
+	public bool IsConditionReached(PathTermination termination, (Coordinate position, Altitude altitude, dynamic? reference) context, decimal tolerance) =>
+		throw new Exception("Resolve this endpoint first.");
+
+	public Coordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, Dictionary<string, HashSet<Navaid>> navaids, Coordinate? reference = null)
+	{
+		Coordinate fix = Reference.Resolve(fixes, reference).GetCoordinate();
+		return fix.FixRadialDistance(Bearing.Resolve(navaids.GetLocalMagneticVariation(fix).Variation), NMI);
+	}
+
+	public Coordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, Dictionary<string, HashSet<Navaid>> navaids, UnresolvedWaypoint? reference)
+	{
+		Coordinate fix = Reference.Resolve(fixes, reference).GetCoordinate();
+		return fix.FixRadialDistance(Bearing.Resolve(navaids.GetLocalMagneticVariation(fix).Variation), NMI);
+	}
+
+	public class UnresolvedFixRadialDistanceJsonConverter : JsonConverter<UnresolvedFixRadialDistance>
+	{
+		public override UnresolvedFixRadialDistance Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+			throw new JsonException();
+
+		public override void Write(Utf8JsonWriter writer, UnresolvedFixRadialDistance value, JsonSerializerOptions options) =>
+			throw new JsonException();
+	}
+}
+
 public record Distance(ICoordinate? Point, decimal NMI) : IProcedureEndpoint
 {
 	public bool IsConditionReached(PathTermination termination, (Coordinate position, Altitude altitude, dynamic? reference) context, decimal tolerance) =>
@@ -948,6 +956,7 @@ public record Arc(ICoordinate? Centerpoint, UnresolvedWaypoint? Centerwaypoint, 
 	}
 }
 
+[JsonConverter(typeof(AltitudeRestrictionJsonConverter))]
 public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 {
 	public static AltitudeRestriction Unrestricted => new(null, null);
@@ -1051,7 +1060,50 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 
 		return new(min is null ? null : new AltitudeMSL(min.Value), max is null ? null : new AltitudeMSL(max.Value));
 	}
+
+	public class AltitudeRestrictionJsonConverter : JsonConverter<AltitudeRestriction>
+	{
+		public override AltitudeRestriction? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+		{
+			if (reader.TokenType == JsonTokenType.Null && reader.Read())
+				return Unrestricted;
+			else if (reader.TokenType != JsonTokenType.StartArray || !reader.Read())
+				throw new JsonException();
+
+			Altitude? minimum = (reader.TokenType == JsonTokenType.Null && reader.Read()) ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
+			Altitude? maximum = (reader.TokenType == JsonTokenType.Null && reader.Read()) ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
+
+			if (reader.TokenType != JsonTokenType.EndArray || !reader.Read())
+				throw new JsonException();
+
+			return new(minimum, maximum);
+		}
+
+		public override void Write(Utf8JsonWriter writer, AltitudeRestriction value, JsonSerializerOptions options)
+		{
+			if (value.IsUnrestricted)
+				writer.WriteNullValue();
+			else
+			{
+				writer.WriteStartArray();
+
+				if (value.Minimum is Altitude min)
+					JsonSerializer.Serialize(writer, min, options);
+				else
+					writer.WriteNullValue();
+
+				if (value.Maximum is Altitude max)
+					JsonSerializer.Serialize(writer, max, options);
+				else
+					writer.WriteNullValue();
+
+				writer.WriteEndArray();
+			}
+		}
+	}
 }
+
+[JsonConverter(typeof(SpeedRestrictionJsonConverter))]
 public record SpeedRestriction(uint? Minimum, uint? Maximum)
 {
 	public static SpeedRestriction Unrestricted => new(null, null);
@@ -1085,16 +1137,57 @@ public record SpeedRestriction(uint? Minimum, uint? Maximum)
 
 		return new(min, max);
 	}
+
+	public class SpeedRestrictionJsonConverter : JsonConverter<SpeedRestriction>
+	{
+		public override SpeedRestriction? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+		{
+			if (reader.TokenType == JsonTokenType.Null && reader.Read())
+				return Unrestricted;
+			else if (reader.TokenType != JsonTokenType.StartArray || !reader.Read())
+				throw new JsonException();
+
+			uint? minimum = reader.TokenType == JsonTokenType.Null ? null : reader.TokenType == JsonTokenType.Number ? reader.GetUInt32() : throw new JsonException();
+			uint? maximum = reader.TokenType == JsonTokenType.Null ? null : reader.TokenType == JsonTokenType.Number ? reader.GetUInt32() : throw new JsonException();
+
+			if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray || !reader.Read())
+				throw new JsonException();
+
+			return new(minimum, maximum);
+		}
+
+		public override void Write(Utf8JsonWriter writer, SpeedRestriction value, JsonSerializerOptions options)
+		{
+			if (value.IsUnrestricted)
+				writer.WriteNullValue();
+			else
+			{
+				writer.WriteStartArray();
+
+				if (value.Minimum is uint min)
+					writer.WriteNumberValue(min);
+				else
+					writer.WriteNullValue();
+
+				if (value.Maximum is uint max)
+					writer.WriteNumberValue(max);
+				else
+					writer.WriteNullValue();
+
+				writer.WriteEndArray();
+			}
+		}
+	}
 }
 
 [JsonConverter(typeof(UnresolvedWaypointJsonConverter))]
 public class UnresolvedWaypoint(string name) : IProcedureEndpoint
 {
-	internal string Name { get; init; } = name;
+	public string Name { get; init; } = name;
 	protected Coordinate? Position { get; init; }
 
 	public NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes) => Resolve(fixes, new Coordinate(0, 0));
-	public NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, ICoordinate? reference = null) =>
+	public NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, Coordinate? reference = null) =>
 		Position?.Name(Name) ?? fixes.Concretize(Name, refCoord: reference);
 	public NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, UnresolvedWaypoint? reference = null) =>
 		Position?.Name(Name) ?? fixes.Concretize(Name, refString: reference?.Name);
@@ -1106,6 +1199,8 @@ public class UnresolvedWaypoint(string name) : IProcedureEndpoint
 
 	public bool IsConditionReached(PathTermination termination, (Coordinate position, Altitude altitude, dynamic? reference) context, decimal tolerance) =>
 		throw new Exception("Waypoint must be resolved.");
+
+	public override string ToString() => Name;
 
 	public class UnresolvedWaypointJsonConverter : JsonConverter<UnresolvedWaypoint>
 	{
@@ -1119,7 +1214,7 @@ public class UnresolvedWaypoint(string name) : IProcedureEndpoint
 
 public static class Extensions
 {
-	public static bool TryConcretize(this Dictionary<string, HashSet<ICoordinate>> fixes, string wp, [NotNullWhen(true)] out NamedCoordinate? coord, ICoordinate? refCoord = null, string? refString = null)
+	public static bool TryConcretize(this Dictionary<string, HashSet<ICoordinate>> fixes, string wp, [NotNullWhen(true)] out NamedCoordinate? coord, Coordinate? refCoord = null, string? refString = null)
 	{
 		if (!fixes.TryGetValue(wp, out HashSet<ICoordinate>? value))
 		{
@@ -1140,7 +1235,7 @@ public static class Extensions
 
 		if (refCoord is not null)
 		{
-			coord = value.MinBy(wp => wp.GetCoordinate().DistanceTo(refCoord is Coordinate c ? c : ((NamedCoordinate?)refCoord)!.Value.Position)) switch {
+			coord = value.MinBy(wp => wp.DistanceTo(refCoord.Value)) switch {
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null
@@ -1167,7 +1262,7 @@ public static class Extensions
 	}
 
 
-	public static NamedCoordinate Concretize(this Dictionary<string, HashSet<ICoordinate>> fixes, string wp, ICoordinate? refCoord = null, string? refString = null)
+	public static NamedCoordinate Concretize(this Dictionary<string, HashSet<ICoordinate>> fixes, string wp, Coordinate? refCoord = null, string? refString = null)
 	{
 		if (TryConcretize(fixes, wp, out var res, refCoord, refString))
 			return res.Value;
@@ -1198,4 +1293,11 @@ public static class Extensions
 
 	public static (Coordinate Reference, decimal Variation) GetLocalMagneticVariation(this Dictionary<string, HashSet<Navaid>> navaids, Coordinate refCoord) =>
 		navaids.Values.SelectMany(ns => ns).OrderBy(na => refCoord.DistanceTo(na.Position)).Where(n => n.MagneticVariation is not null).Select(n => (n.Position, n.MagneticVariation!.Value)).First();
+
+	public static (ICoordinate Reference, decimal Variation) GetLocalMagneticVariation(this Dictionary<string, Aerodrome> aerodromes, Coordinate refCoord) =>
+		aerodromes.Values.OrderBy(a => refCoord.DistanceTo(a.Location.GetCoordinate())).First() switch {
+			Airport ap => (ap.Location, ap.MagneticVariation),
+			Heliport hp => (hp.Location, hp.MagneticVariation),
+			_ => throw new NotImplementedException()
+		};
 }

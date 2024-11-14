@@ -4,7 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using System.Web;
 
-namespace CIFPReader;
+namespace SectorGenerator;
 internal class Oauth : IDisposable
 {
 	readonly HttpListener _endpoint = new();

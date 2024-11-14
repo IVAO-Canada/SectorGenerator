@@ -5,7 +5,7 @@ using System.Drawing;
 
 using WSleeman.Osm;
 
-namespace CIFPReader;
+namespace SectorGenerator;
 internal static class Coastline
 {
 	public static Dictionary<char, Way[]> LoadTopologies(string topoPath)
