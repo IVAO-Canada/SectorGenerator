@@ -80,7 +80,7 @@ public class Program
 
 		HashSet<NamedCoordinate> vfrFixes = [];
 		HashSet<ICoordinate[]> vfrRoutes = [];
-		Dictionary<string, HashSet<IDrawableGeo>> videoMaps = [];
+		Dictionary<string, (string Colour, HashSet<IDrawableGeo> Drawables)> videoMaps = [];
 		if (manualAdjustments.Count > 0)
 		{
 			Console.Write($"Applying {manualAdjustments.Count} manual adjustments..."); await Console.Out.FlushAsync();
@@ -129,9 +129,14 @@ public class Program
 			// Videomaps
 			foreach (AddGeo geo in manualAdjustments.Where(a => a is AddGeo).Cast<AddGeo>())
 				if (videoMaps.TryGetValue(geo.Tag, out var preExistingGeos))
-					preExistingGeos.UnionWith(geo.Geos.Select(g => { g.Resolve(cifp); return g; }));
+				{
+					preExistingGeos.Drawables.UnionWith(geo.Geos.Select(g => { g.Resolve(cifp); return g; }));
+
+					if (preExistingGeos.Colour == "#FF999999")
+						videoMaps[geo.Tag] = (geo.Colour, preExistingGeos.Drawables);
+				}
 				else
-					videoMaps.Add(geo.Tag, [.. geo.Geos.Select(g => { g.Resolve(cifp); return g; })]);
+					videoMaps.Add(geo.Tag, (geo.Colour, [.. geo.Geos.Select(g => { g.Resolve(cifp); return g; })]));
 
 			Console.WriteLine(" Done!");
 		}
@@ -373,7 +378,7 @@ US/{artcc};US/labels;US/geos;US/polygons;US/procedures;US/navaids;US/mvas;US/vid
 			if (!Directory.Exists(artccFolder))
 				Directory.CreateDirectory(artccFolder);
 
-			string[] applicableVideoMaps = [.. videoMaps.Where(kvp => kvp.Value.Any(g => g.ReferencePoints.Any(p => IsInPolygon(artccBoundaries[artcc], p)))).Select(kvp => kvp.Key)];
+			string[] applicableVideoMaps = [.. videoMaps.Where(kvp => kvp.Value.Drawables.Any(g => g.ReferencePoints.Any(p => IsInPolygon(artccBoundaries[artcc], p)))).Select(kvp => kvp.Key)];
 
 			// Colours
 			string defineBlock = $@"[DEFINE]
@@ -383,7 +388,7 @@ OUTLINE;#FF000000;
 BUILDING;#FF773333;
 RUNWAY;#FF555555;
 STOPBAR;#FFB30000;
-{string.Join("\r\n", applicableVideoMaps.Select(g => $"{g};#FF999999;"))}
+{string.Join("\r\n", applicableVideoMaps.Select(g => $"{g};{videoMaps[g].Colour};"))}
 ";
 
 			// ATC Positions
@@ -715,13 +720,13 @@ F;online.ply
 		);
 	}
 
-	static void WriteVideoMaps(Dictionary<string, HashSet<IDrawableGeo>> layers, string geoFolder) => Parallel.ForEach(layers, kvp =>
+	static void WriteVideoMaps(Dictionary<string, (string Colour, HashSet<IDrawableGeo> Drawables)> layers, string geoFolder) => Parallel.ForEach(layers, kvp =>
 	{
 		string layerName = kvp.Key;
 		StringBuilder fileContents = new();
-		fileContents.AppendLine($"// {layerName} - {kvp.Value.Count} geos");
+		fileContents.AppendLine($"// {layerName} - {kvp.Value.Drawables.Count} geos");
 
-		foreach (IDrawableGeo geo in kvp.Value)
+		foreach (IDrawableGeo geo in kvp.Value.Drawables)
 		{
 			Coordinate? last = null;
 			fileContents.AppendLine($"// {geo.GetType().Name}");

@@ -322,6 +322,24 @@ internal abstract partial record ManualAdjustment
 					string geoTag = new string([.. filecontents.TakeWhile(c => c != ':' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
 					filecontents = filecontents[geoTag.Length..].TrimStart();
 
+					string colour = "#FF999999";
+					if (filecontents[0] == '(')
+					{
+						Match c = ColourRegex().Match(filecontents);
+						if (!c.Success)
+						{
+							Console.WriteLine($"ERROR! Expected colour in geo definition after GEO {geoTag} (.");
+							AbsorbBlock(indent);
+							continue;
+						}
+
+						colour = c.Value;
+						if (colour.Length < 9)
+							colour = "#FF" + colour[1..];
+
+						filecontents = filecontents[c.Length..].TrimStart([ ' ', '\t' ]);
+					}
+
 					if (filecontents[0] != ':')
 					{
 						Console.WriteLine($"ERROR! Expected : in geo definition after GEO {geoTag}.");
@@ -348,7 +366,7 @@ internal abstract partial record ManualAdjustment
 					} while ((geoIndentDepth = GetIndentLevel()) > indent);
 
 					indent = geoIndentDepth;
-					yield return new AddGeo(geoTag, [.. geos]);
+					yield return new AddGeo(geoTag, colour, [.. geos]);
 					continue;
 
 				default:
@@ -372,11 +390,14 @@ internal abstract partial record ManualAdjustment
 			yield return new AddFix(nc.Name, new(nc, null, null));
 	}
 
-	[GeneratedRegex(@"\A(?<fix>([A-Z0-9/](?!..@))+)?(\((?<lat>[-+]?\d+(\.\d+)?[NS]?)\s*[^A-Z0-9]\s*(?<lon>[-+]?\d+(\.\d+)?[EW]?)\))?((?<radial>\d{3})@(?<distance>\d+(\.\d+)?))?", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
+	[GeneratedRegex(@"\A((?<fix>([A-Z0-9/](?!..@))+)|""(?<fix>[^""]+)"")?(\((?<lat>[-+]?\d+(\.\d+)?[NS]?)\s*[^A-Z0-9]\s*(?<lon>[-+]?\d+(\.\d+)?[EW]?)\))?((?<radial>\d{3})@(?<distance>\d+(\.\d+)?))?", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
 	public static partial Regex PossibleWaypointRegex();
 
 	[GeneratedRegex(@"\A[^\S\n]*\([^\S\n]*(?<size>[+-]?\d+(\.\d+)?)[^\S\n]*\)[^\S\n]*", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
 	public static partial Regex SizeRegex();
+
+	[GeneratedRegex(@"\A[^\S\n]*\([^\S\n]*(?<colour>#[A-F0-9]{6}([A-F0-9][A-F0-9])?)[^\S\n]*\)[^\S\n]*", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
+	public static partial Regex ColourRegex();
 }
 
 internal abstract record ManualAddition : ManualAdjustment;
@@ -389,7 +410,7 @@ internal sealed record RemoveFix(PossiblyResolvedWaypoint Fix) : ManualDeletion;
 
 internal sealed record AddVfrRoute(PossiblyResolvedWaypoint[] Points) : ManualAddition;
 
-internal sealed record AddGeo(string Tag, IDrawableGeo[] Geos) : ManualAddition;
+internal sealed record AddGeo(string Tag, string Colour, IDrawableGeo[] Geos) : ManualAddition;
 
 internal record struct PossiblyResolvedWaypoint(ICoordinate? Coordinate, UnresolvedWaypoint? FixName, UnresolvedFixRadialDistance? FixRadialDistance)
 {
