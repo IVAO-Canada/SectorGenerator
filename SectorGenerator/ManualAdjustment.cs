@@ -319,7 +319,7 @@ internal abstract partial record ManualAdjustment
 					break;
 
 				case "GEO":
-					string geoTag = new string([.. filecontents.TakeWhile(c => c != ':' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
+					string geoTag = new string([.. filecontents.TakeWhile(c => c != ':' && c != '(' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
 					filecontents = filecontents[geoTag.Length..].TrimStart();
 
 					string colour = "#FF999999";
@@ -333,7 +333,7 @@ internal abstract partial record ManualAdjustment
 							continue;
 						}
 
-						colour = c.Value;
+						colour = new([..c.Value.SkipWhile(c => c != '#').TakeWhile(c => c == '#' || char.IsLetterOrDigit(c))]);
 						if (colour.Length < 9)
 							colour = "#FF" + colour[1..];
 
