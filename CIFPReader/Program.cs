@@ -15,7 +15,7 @@ foreach (string filename in Directory.EnumerateFiles("cifp"))
 	_ = await s3.PutObjectAsync(new() {
 		BucketName = "ivao-xa",
 		Key = Path.GetFileName(filename),
-		FilePath = Path.GetFullPath(filename),
+		InputStream = File.OpenRead(filename),
 		ContentType = "application/json",
 	}, cts.Token);
 	Console.WriteLine("Done!");
