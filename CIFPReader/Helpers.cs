@@ -21,7 +21,10 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 
 	public static CIFP Load(string? directory = null)
 	{
-		directory ??= Environment.CurrentDirectory;
+		if (string.IsNullOrWhiteSpace(directory))
+			directory = Environment.CurrentDirectory;
+		else
+			directory = Path.GetFullPath(directory);
 
 		if (directory.StartsWith("s3://", StringComparison.InvariantCultureIgnoreCase))
 		{
@@ -42,7 +45,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 						File.Delete(outpath);
 
 					await getResp.WriteResponseStreamToFileAsync(outpath, false, CancellationToken.None);
-				}	
+				}
 			});
 
 			t.Wait(TimeSpan.FromSeconds(10));
