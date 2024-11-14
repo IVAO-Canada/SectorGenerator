@@ -109,6 +109,28 @@ internal abstract partial record ManualAdjustment
 					return decimal.Parse(m.Groups["size"].Value);
 				}
 
+				GeoConnector.Arc.Direction? GetDirection(string context)
+				{
+					if (filecontents[0] != '(' || !(char.ToUpperInvariant(filecontents[1..].TrimStart()[0]) is 'N' or 'S' or 'E' or 'W') || filecontents[1..].TrimStart()[1..].TrimStart()[0] != ')')
+					{
+						Console.WriteLine($"ERROR! Expected (<DIRECTION>) after {context}.");
+						filecontents = filecontents[filecontents.TakeWhile(c => c != '\n').Count()..];
+						return null;
+					}
+					filecontents = filecontents[1..].TrimStart();
+
+					GeoConnector.Arc.Direction direction = char.ToUpperInvariant(filecontents[0]) switch {
+						'N' => GeoConnector.Arc.Direction.North,
+						'S' => GeoConnector.Arc.Direction.South,
+						'E' => GeoConnector.Arc.Direction.East,
+						'W' => GeoConnector.Arc.Direction.West,
+						_ => throw new NotImplementedException()
+					};
+					filecontents = filecontents[(filecontents.TakeWhile(c => c != ')').Count() + 1)..].TrimStart();
+
+					return direction;
+				}
+
 				switch (geoType)
 				{
 					case "CIRCLE":
@@ -210,22 +232,8 @@ internal abstract partial record ManualAdjustment
 						return new GeoConnector.Arrow([.. arrowWaypoints], arrowSize);
 
 					case "ARC":
-						if (filecontents[0] != '(' || !(char.ToUpperInvariant(filecontents[1..].TrimStart()[0]) is 'N' or 'S' or 'E' or 'W') || filecontents[1..].TrimStart()[1..].TrimStart()[0] != ')')
-						{
-							Console.WriteLine($"ERROR! Expected (<DIRECTION>) after ARC in {context}.");
-							filecontents = filecontents[filecontents.TakeWhile(c => c != '\n').Count()..];
+						if (GetDirection($"arc in {context}") is not GeoConnector.Arc.Direction arcDirection)
 							return null;
-						}
-						filecontents = filecontents[1..].TrimStart();
-
-						GeoConnector.Arc.Direction direction = char.ToUpperInvariant(filecontents[0]) switch {
-							'N' => GeoConnector.Arc.Direction.North,
-							'S' => GeoConnector.Arc.Direction.South,
-							'E' => GeoConnector.Arc.Direction.East,
-							'W' => GeoConnector.Arc.Direction.West,
-							_ => throw new NotImplementedException()
-						};
-						filecontents = filecontents[(filecontents.TakeWhile(c => c != ')').Count() + 1)..].TrimStart();
 
 						List<PossiblyResolvedWaypoint> arcWaypoints = [];
 
@@ -235,7 +243,21 @@ internal abstract partial record ManualAdjustment
 						if (filecontents.Length > 0 && !NewlinePending())
 							return null;
 
-						return new GeoConnector.Arc([.. arcWaypoints], direction);
+						return new GeoConnector.Arc([.. arcWaypoints], arcDirection);
+
+					case "DASHARC":
+						if (GetDirection($"dasharc in {context}") is not GeoConnector.Arc.Direction direction)
+							return null;
+
+						List<PossiblyResolvedWaypoint> dashArcWaypoints = [];
+
+						while (filecontents.Length > 0 && !NewlinePending() && ReadWaypoint($"point on dasharc in {context}") is PossiblyResolvedWaypoint awp)
+							dashArcWaypoints.Add(awp);
+
+						if (filecontents.Length > 0 && !NewlinePending())
+							return null;
+
+						return new GeoConnector.DashArc([.. dashArcWaypoints], direction);
 
 
 					default:
@@ -738,6 +760,50 @@ internal abstract record GeoConnector(PossiblyResolvedWaypoint[] Points) : IDraw
 
 				for (Course angle = startAngle; (int)angle.Degrees % 360 != (int)endAngle.Degrees % 360; angle += (Math.Abs(endAngle.Angle(angle)) < Math.Abs(step)) ? angle.Angle(endAngle) : step)
 					yield return centerpoint.FixRadialDistance(angle, fromToTo.distance / 2);
+
+				yield return to;
+			}
+		}
+	}
+
+	/// <summary>Dashes are 10°.</summary>
+	public sealed record DashArc(PossiblyResolvedWaypoint[] Points, Arc.Direction Towards) : GeoConnector(Points)
+	{
+		public override IEnumerable<Coordinate?> Draw()
+		{
+			if (_resolvedPoints.Length == 0) yield break;
+
+			yield return _resolvedPoints[0];
+
+			if (_resolvedPoints.Length == 1) yield break;
+
+			foreach (var (from, to) in _resolvedPoints[..^1].Zip(_resolvedPoints[1..]))
+			{
+				var fromToTo = from.GetBearingDistance(to);
+				Coordinate centerpoint = from.FixRadialDistance(fromToTo.bearing ?? new(0), fromToTo.distance / 2);
+
+				TrueCourse startAngle = centerpoint.GetBearingDistance(from).bearing ?? new(0),
+							 endAngle = centerpoint.GetBearingDistance(to).bearing ?? new(0);
+				int step = Math.Sign(startAngle.Angle(new TrueCourse((decimal)Towards)));
+				step = (step == 0 ? 1 : step) * 10;
+				Coordinate? last = null;
+
+				for (Course angle = startAngle; (int)angle.Degrees % 360 != (int)endAngle.Degrees % 360; angle += (Math.Abs(endAngle.Angle(angle)) < Math.Abs(step)) ? angle.Angle(endAngle) : step)
+				{
+					yield return last;
+
+					Coordinate next = centerpoint.FixRadialDistance(angle, fromToTo.distance / 2);
+					if (last is Coordinate l)
+					{
+						yield return next;
+						last = null;
+					}
+					else
+					{
+						yield return null;
+						last = next;
+					}
+				}
 
 				yield return to;
 			}
