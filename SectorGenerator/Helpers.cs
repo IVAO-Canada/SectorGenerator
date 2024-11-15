@@ -98,6 +98,15 @@ internal static class Helpers
 
 	public static string Dms(decimal value, bool longitude) => Dms((double)value, longitude);
 
+	public static string ArtccIcao(string faa) => faa switch {
+		"ZSU" => "TJZS",
+		"ZAN" => "PAZA",
+		"ZHN" => "PHZH",
+		"ZGU" => "KZAK",
+		_ when faa.Length == 3 => "K" + faa,
+		_ => faa
+	};
+
 	/// <summary>
 	/// Gets the distance in nautical miles between two <see cref="OsmSharp.Node">Nodes</see>.
 	/// </summary>
@@ -138,7 +147,9 @@ internal static class Helpers
 		{ "KA80", "ZTL" },
 		{ "KI90", "ZHU" },
 		{ "KJSD", "ZNY" }, // Damn you Sikorsky
-		{ "KMUI", "ZNY" }
+		{ "KMUI", "ZNY" },
+		{ "KC90", "ZAU" },
+		{ "KA11", "PAZA" }
 	};
 
 	public static Way Inflate(this Way w, double radius)

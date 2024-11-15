@@ -24,7 +24,8 @@ internal partial class Mrva
 	{
 		Task t = Task.Run(() => GenerateMrvas(boundary));
 
-		while (!t.IsCompleted)
+		DateTimeOffset startTime = DateTimeOffset.UtcNow;
+		while (!t.IsCompleted && (DateTimeOffset.UtcNow - startTime).TotalMinutes < 1)
 			Task.Delay(100).Wait();
 	}
 

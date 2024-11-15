@@ -397,7 +397,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		}));
 
 		Procedures = procs.ToDictionary();
-		(MORAs, Airspaces) = (moras.ToArray(), airspaces.ToArray());
+		(MORAs, Airspaces) = ([.. moras], [.. airspaces]);
 	}
 }
 
