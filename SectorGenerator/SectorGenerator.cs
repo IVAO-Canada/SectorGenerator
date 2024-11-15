@@ -663,7 +663,7 @@ F;online.ply
 #endif
 		);
 
-			File.WriteAllText(Path.Combine(config.OutputFolder, $"{artcc}.isc"), $@"{infoBlock}
+			File.WriteAllText(Path.Combine(config.OutputFolder, $"{ArtccIcao(artcc)}.isc"), $@"{infoBlock}
 {defineBlock}
 {atcBlock}
 {airportBlock}
