@@ -50,6 +50,19 @@ public class Program
 		Console.WriteLine(" Done!");
 #endif
 
+		foreach (var airport in cifp.Aerodromes.Values)
+			if (cifp.Fixes.TryGetValue(airport.Identifier, out var apFixes))
+				apFixes.Add(airport.Location);
+			else
+				cifp.Fixes[airport.Identifier] = [airport.Location];
+
+		foreach (var runway in cifp.Runways.Values.SelectMany(r => r))
+			if (cifp.Fixes.TryGetValue($"{runway.Airport}/RW{runway.Identifier}", out var rwyFixes))
+				rwyFixes.Add(runway.Endpoint);
+			else
+				cifp.Fixes[$"{runway.Airport}/RW{runway.Identifier}"] = [runway.Endpoint];
+
+		Dictionary<string, HashSet<AddProcedure>> addedProcedures = [];
 		HashSet<NamedCoordinate> vfrFixes = [];
 		HashSet<ICoordinate[]> vfrRoutes = [];
 		Dictionary<string, (string Colour, HashSet<IDrawableGeo> Drawables)> videoMaps = [];
@@ -110,6 +123,19 @@ public class Program
 				else
 					videoMaps.Add(geo.Tag, (geo.Colour, [.. geo.Geos.Select(g => { g.Resolve(cifp); return g; })]));
 
+			// Procedures
+			addedProcedures = manualAdjustments
+				.Where(a => a is AddProcedure).Cast<AddProcedure>()
+				.GroupBy(p => p.Airport)
+				.ToDictionary(
+					g => g.Key,
+					g => g.Select(i => i with { Geos = [.. i.Geos.SelectMany<IDrawableGeo, IDrawableGeo>(g => g.Resolve(cifp) ? [g] : [])] }).ToHashSet()
+				);
+
+			foreach (RemoveProcedure proc in manualAdjustments.Where(a => a is RemoveProcedure).Cast<RemoveProcedure>())
+				if (cifp.Procedures.TryGetValue(proc.Identifier, out var procs))
+					procs.RemoveWhere(p => p.Airport == proc.Airport);
+
 			Console.WriteLine(" Done!");
 		}
 
@@ -132,8 +158,8 @@ public class Program
 
 		foreach (var (fir, points) in firBoundaries.Where(b => targetFirs.Contains(b.Key)))
 			centerAirports.Add(fir, [..
-				cifp.Aerodromes.Values.Where(a => IsInPolygon(points, ((double)a.Location.Latitude, (double)a.Location.Longitude)))
-					.Concat(config.SectorAdditionalAirports.TryGetValue(fir, out var addtl) ? addtl.Select(a => cifp.Aerodromes[a]) : [])
+				cifp.Aerodromes.Values.Where(a => IsInPolygon(points, a.Location))
+					.Concat(config.SectorAdditionalAirports.TryGetValue(fir, out var addtl) ? addtl.SelectMany<string, Aerodrome>(a => cifp.Aerodromes.TryGetValue(a, out var r) ? [r] : []) : [])
 			]);
 
 		Console.WriteLine(" Done!");
@@ -273,8 +299,9 @@ public class Program
 
 		Console.WriteLine($" Done!");
 #endif
+
 		Console.Write("Generating procedures..."); await Console.Out.FlushAsync();
-		var apProcFixes = await WriteProceduresAsync(cifp, includeFolder);
+		var apProcFixes = await WriteProceduresAsync(cifp, addedProcedures, includeFolder);
 		Console.WriteLine($" Done!");
 
 		Console.Write("Generating video maps..."); await Console.Out.FlushAsync();
@@ -286,6 +313,7 @@ public class Program
 		Console.WriteLine($" Done!");
 
 
+		// Write ISCs
 		foreach (string fir in targetFirs)
 		{
 			string mvaFolder = Path.Combine(includeFolder, "mvas");
@@ -305,7 +333,7 @@ public class Program
 				ifrAirports.Average(ap => (double)(ap.Location.Longitude > 0 ? ap.Location.Longitude - 360 : ap.Location.Longitude))
 			);
 
-			// Info.
+			// Info
 			double cosLat = Math.Cos(centerpoint.Latitude * Math.PI / 180);
 
 			string infoBlock = $@"[INFO]
@@ -443,7 +471,7 @@ F;high.artcc
 			);
 
 			// VFR Fixes
-			string vfrBlock = "[VFRENR]\r\nF;vfr.vfi\r\n";
+			string vfrBlock = "[VFRENR]\r\nF;vfr.vfi\r\n\r\n";
 
 			File.WriteAllLines(Path.Combine(firFolder, "vfr.vfi"), [..
 		fixes
@@ -626,14 +654,14 @@ F;online.ply
 
 		foreach (IDrawableGeo geo in kvp.Value.Drawables)
 		{
-			Coordinate? last = null;
+			ICoordinate? last = null;
 			fileContents.AppendLine($"// {geo.GetType().Name}");
 
-			foreach (Coordinate? next in geo.Draw())
+			foreach (ICoordinate? next in geo.Draw())
 			{
 				if (next is null)
 					fileContents.AppendLine("// BREAK");
-				else if (last is Coordinate l && next is Coordinate n)
+				else if (last is ICoordinate l && next is ICoordinate n)
 					fileContents.AppendLine($"{l.Latitude:00.0####};{l.Longitude:000.0####};{n.Latitude:00.0####};{n.Longitude:000.0####};{layerName};");
 
 				last = next;
@@ -643,7 +671,7 @@ F;online.ply
 		File.WriteAllText(Path.Combine(geoFolder, Path.ChangeExtension(layerName, ".geo")), fileContents.ToString());
 	});
 
-	static async Task<FrozenDictionary<string, HashSet<NamedCoordinate>>> WriteProceduresAsync(CIFP cifp, string includeFolder)
+	static async Task<FrozenDictionary<string, HashSet<NamedCoordinate>>> WriteProceduresAsync(CIFP cifp, Dictionary<string, HashSet<AddProcedure>> addedProcedures, string includeFolder)
 	{
 		string procedureFolder = Path.Combine(includeFolder, "procedures");
 		Directory.CreateDirectory(procedureFolder);
@@ -656,6 +684,61 @@ F;online.ply
 			var (sidLines, sidFixes) = procs.AirportSidLines(airport.Identifier);
 			var (starLines, starFixes) = procs.AirportStarLines(airport.Identifier);
 			var (iapLines, iapFixes) = procs.AirportApproachLines(airport.Identifier);
+			
+			if (addedProcedures.TryGetValue(airport.Identifier, out var addedProcs))
+			{
+				foreach (var proc in addedProcs)
+				{
+					HashSet<NamedCoordinate> fixes = [];
+
+					string[] allLines = [
+						$"{airport.Identifier};{string.Join(':', cifp.Runways[airport.Identifier].Select(r => r.Identifier))};{proc.Identifier};{airport.Identifier};{airport.Identifier};{(proc.Type == AddProcedure.ProcedureType.IAP ? "3;" : "")}",
+						..proc.Geos.Select(g =>
+					{
+						bool nextBreak = true;
+						List<string> lines = [];
+
+						foreach (ICoordinate? c in g.Draw())
+						{
+							if (c is null)
+							{
+								nextBreak = true;
+								continue;
+							}
+
+							if (c is NamedCoordinate nc)
+							{
+								lines.Add($"{nc.Name};{nc.Name};{(nextBreak ? "<br>;" : "")}");
+								fixes.Add(nc);
+							}
+							else
+								lines.Add($"{c.Latitude:00.0####};{c.Longitude:000.0####};{(nextBreak ? "<br>;" : "")}");
+
+							nextBreak = false;
+						}
+
+						return string.Join("\r\n", lines);
+					})];
+
+					switch (proc.Type)
+					{
+						case AddProcedure.ProcedureType.SID:
+							sidLines = [.. sidLines, .. allLines];
+							sidFixes = [.. sidFixes, .. fixes];
+							break;
+
+						case AddProcedure.ProcedureType.STAR:
+							starLines = [.. starLines, .. allLines];
+							starFixes = [.. starFixes, .. fixes];
+							break;
+
+						case AddProcedure.ProcedureType.IAP:
+							iapLines = [.. iapLines, .. allLines];
+							iapFixes = [.. iapFixes, .. fixes];
+							break;
+					}
+				}
+			}
 
 			if (sidLines.Length > 0)
 				File.WriteAllLines(Path.Combine(procedureFolder, airport.Identifier + ".sid"), sidLines);

@@ -3,6 +3,8 @@
 using System.Text.RegularExpressions;
 
 namespace SectorGenerator;
+
+#pragma warning disable IDE0042 // Deconstruct variable declaration
 internal abstract partial record ManualAdjustment
 {
 	public static IEnumerable<ManualAdjustment> Process(string filecontents)
@@ -109,8 +111,36 @@ internal abstract partial record ManualAdjustment
 					return decimal.Parse(m.Groups["size"].Value);
 				}
 
+				GeoConnector.Arc.Direction? GetDirection(string context)
+				{
+					if (filecontents[0] != '(' || !(char.ToUpperInvariant(filecontents[1..].TrimStart()[0]) is 'N' or 'S' or 'E' or 'W') || filecontents[1..].TrimStart()[1..].TrimStart()[0] != ')')
+					{
+						Console.WriteLine($"ERROR! Expected (<DIRECTION>) after {context}.");
+						filecontents = filecontents[filecontents.TakeWhile(c => c != '\n').Count()..];
+						return null;
+					}
+					filecontents = filecontents[1..].TrimStart();
+
+					GeoConnector.Arc.Direction direction = char.ToUpperInvariant(filecontents[0]) switch {
+						'N' => GeoConnector.Arc.Direction.North,
+						'S' => GeoConnector.Arc.Direction.South,
+						'E' => GeoConnector.Arc.Direction.East,
+						'W' => GeoConnector.Arc.Direction.West,
+						_ => throw new NotImplementedException()
+					};
+					filecontents = filecontents[(filecontents.TakeWhile(c => c != ')').Count() + 1)..].TrimStart();
+
+					return direction;
+				}
+
 				switch (geoType)
 				{
+					case "POINT":
+						if (ReadWaypoint($"point in {context}") is not PossiblyResolvedWaypoint point)
+							return null;
+
+						return new GeoSymbol.Point(point);
+
 					case "CIRCLE":
 						decimal circleSize = GetSize(0.5m);
 						if (ReadWaypoint($"centerpoint of circle in {context}") is not PossiblyResolvedWaypoint circleCenter)
@@ -209,6 +239,35 @@ internal abstract partial record ManualAdjustment
 
 						return new GeoConnector.Arrow([.. arrowWaypoints], arrowSize);
 
+					case "ARC":
+						if (GetDirection($"arc in {context}") is not GeoConnector.Arc.Direction arcDirection)
+							return null;
+
+						List<PossiblyResolvedWaypoint> arcWaypoints = [];
+
+						while (filecontents.Length > 0 && !NewlinePending() && ReadWaypoint($"point on arc in {context}") is PossiblyResolvedWaypoint awp)
+							arcWaypoints.Add(awp);
+
+						if (filecontents.Length > 0 && !NewlinePending())
+							return null;
+
+						return new GeoConnector.Arc([.. arcWaypoints], arcDirection);
+
+					case "DASHARC":
+						if (GetDirection($"dasharc in {context}") is not GeoConnector.Arc.Direction direction)
+							return null;
+
+						List<PossiblyResolvedWaypoint> dashArcWaypoints = [];
+
+						while (filecontents.Length > 0 && !NewlinePending() && ReadWaypoint($"point on dasharc in {context}") is PossiblyResolvedWaypoint awp)
+							dashArcWaypoints.Add(awp);
+
+						if (filecontents.Length > 0 && !NewlinePending())
+							return null;
+
+						return new GeoConnector.DashArc([.. dashArcWaypoints], direction);
+
+
 					default:
 						Console.WriteLine($"ERROR! Unknown geo type {geoType} in {context}.");
 						filecontents = filecontents[filecontents.TakeWhile(c => c != '\n').Count()..];
@@ -219,8 +278,17 @@ internal abstract partial record ManualAdjustment
 			switch (header)
 			{
 				case "FIX":
-					string fixname = new string([.. filecontents.TakeWhile(c => c != ':' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
-					filecontents = filecontents[fixname.Length..].TrimStart();
+					string fixname;
+					if (filecontents[0] == '"')
+					{
+						fixname = filecontents[1..].Split('"')[0];
+						filecontents = filecontents[(fixname.Length + 2)..].TrimStart([' ', '\t']);
+					}
+					else
+					{
+						fixname = new string([.. filecontents.TakeWhile(c => c != ':' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
+						filecontents = filecontents[fixname.Length..].TrimStart([' ', '\t']);
+					}
 
 					if (filecontents[0] != ':')
 					{
@@ -254,8 +322,17 @@ internal abstract partial record ManualAdjustment
 					break;
 
 				case "VFRFIX":
-					string vfrfixname = new string([.. filecontents.TakeWhile(c => c != ':' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
-					filecontents = filecontents[vfrfixname.Length..].TrimStart();
+					string vfrfixname;
+					if (filecontents[0] == '"')
+					{
+						vfrfixname = filecontents[1..].Split('"')[0];
+						filecontents = filecontents[(vfrfixname.Length + 2)..].TrimStart([' ', '\t']);
+					}
+					else
+					{
+						vfrfixname = new string([.. filecontents.TakeWhile(c => c != ':' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
+						filecontents = filecontents[vfrfixname.Length..].TrimStart([' ', '\t']);
+					}
 
 					if (filecontents[0] != ':')
 					{
@@ -319,8 +396,17 @@ internal abstract partial record ManualAdjustment
 					break;
 
 				case "GEO":
-					string geoTag = new string([.. filecontents.TakeWhile(c => c != ':' && c != '(' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
-					filecontents = filecontents[geoTag.Length..].TrimStart();
+					string geoTag;
+					if (filecontents[0] == '"')
+					{
+						geoTag = filecontents[1..].Split('"')[0];
+						filecontents = filecontents[(geoTag.Length + 2)..].TrimStart([' ', '\t']);
+					}
+					else
+					{
+						geoTag = new string([.. filecontents.TakeWhile(c => c != ':' && c != '(' && !char.IsWhiteSpace(c))]).ToUpperInvariant();
+						filecontents = filecontents[geoTag.Length..].TrimStart([' ', '\t']);
+					}
 
 					string colour = "#FF999999";
 					if (filecontents[0] == '(')
@@ -333,11 +419,11 @@ internal abstract partial record ManualAdjustment
 							continue;
 						}
 
-						colour = new([..c.Value.SkipWhile(c => c != '#').TakeWhile(c => c == '#' || char.IsLetterOrDigit(c))]);
+						colour = new([.. c.Value.SkipWhile(c => c != '#').TakeWhile(c => c == '#' || char.IsLetterOrDigit(c))]);
 						if (colour.Length < 9)
 							colour = "#FF" + colour[1..];
 
-						filecontents = filecontents[c.Length..].TrimStart([ ' ', '\t' ]);
+						filecontents = filecontents[c.Length..].TrimStart([' ', '\t']);
 					}
 
 					if (filecontents[0] != ':')
@@ -369,6 +455,52 @@ internal abstract partial record ManualAdjustment
 					yield return new AddGeo(geoTag, colour, [.. geos]);
 					continue;
 
+				case "PROC":
+					Match m = ProcHeaderRegex().Match(filecontents);
+					if (!m.Success)
+					{
+						Console.WriteLine($"ERROR! Invalid PROC header {filecontents[..filecontents.IndexOf('\n')]}");
+						AbsorbBlock(indent);
+						continue;
+					}
+
+					string ap = m.Groups["ap"].Value, typeStr = m.Groups["type"].Value.ToUpperInvariant(), id = m.Groups["name"].Value;
+					AddProcedure.ProcedureType procType = typeStr switch {
+						"SID" => AddProcedure.ProcedureType.SID,
+						"STAR" => AddProcedure.ProcedureType.STAR,
+						"IAP" => AddProcedure.ProcedureType.IAP,
+						_ => throw new NotImplementedException()
+					};
+
+					filecontents = filecontents[m.Length..].TrimStart([ ' ', '\t' ]);
+
+					if (!NewlinePending() && filecontents[..filecontents.IndexOf('\n')].Trim().Equals("delete", StringComparison.InvariantCultureIgnoreCase))
+					{
+						yield return new RemoveProcedure(ap, procType, id);
+						continue;
+					}
+
+					int procIndentDepth;
+					if (!NewlinePending() || (procIndentDepth = GetIndentLevel()) <= indent)
+					{
+						Console.WriteLine($"ERROR! Expected definition block for {typeStr} {id} at {ap}.");
+						AbsorbBlock(indent);
+						continue;
+					}
+
+					List<IDrawableGeo> procGeos = [];
+					do
+					{
+						if (ReadGeo($"{typeStr} {id} at {ap}") is IDrawableGeo geo)
+							procGeos.Add(geo);
+						else
+							filecontents = filecontents[filecontents.TakeWhile(c => c != '\n').Count()..];
+					} while ((procIndentDepth = GetIndentLevel()) > indent);
+
+					indent = procIndentDepth;
+					yield return new AddProcedure(ap, procType, id, [.. procGeos]);
+					continue;
+
 				default:
 					Console.WriteLine($"ERROR! Unrecognised header {header}.");
 					AbsorbBlock(indent);
@@ -398,6 +530,9 @@ internal abstract partial record ManualAdjustment
 
 	[GeneratedRegex(@"\A[^\S\n]*\([^\S\n]*(?<colour>#[A-F0-9]{6}([A-F0-9][A-F0-9])?)[^\S\n]*\)[^\S\n]*", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
 	public static partial Regex ColourRegex();
+
+	[GeneratedRegex(@"\A(?<ap>\w+)[^\S\n]+(?<type>SID|STAR|IAP)[^\S\n]+(?<name>[^\s:]+)[^\S\n]*:", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
+	public static partial Regex ProcHeaderRegex();
 }
 
 internal abstract record ManualAddition : ManualAdjustment;
@@ -411,6 +546,18 @@ internal sealed record RemoveFix(PossiblyResolvedWaypoint Fix) : ManualDeletion;
 internal sealed record AddVfrRoute(PossiblyResolvedWaypoint[] Points) : ManualAddition;
 
 internal sealed record AddGeo(string Tag, string Colour, IDrawableGeo[] Geos) : ManualAddition;
+
+internal sealed record AddProcedure(string Airport, AddProcedure.ProcedureType Type, string Identifier, IDrawableGeo[] Geos) : ManualAddition
+{
+	public enum ProcedureType
+	{
+		SID,
+		STAR,
+		IAP
+	}
+}
+
+internal sealed record RemoveProcedure(string Airport, AddProcedure.ProcedureType Type, string Identifier) : ManualDeletion;
 
 internal record struct PossiblyResolvedWaypoint(ICoordinate? Coordinate, UnresolvedWaypoint? FixName, UnresolvedFixRadialDistance? FixRadialDistance)
 {
@@ -429,36 +576,41 @@ internal record struct PossiblyResolvedWaypoint(ICoordinate? Coordinate, Unresol
 internal interface IDrawableGeo
 {
 	public bool Resolve(CIFP cifp);
-	public IEnumerable<Coordinate?> Draw();
+	public IEnumerable<ICoordinate?> Draw();
 	public Coordinate[] ReferencePoints { get; }
 }
 
 internal abstract record GeoSymbol(PossiblyResolvedWaypoint Centerpoint, decimal Size) : IDrawableGeo
 {
-	protected Coordinate _resolvedCenterpoint = new(0, 0);
+	protected ICoordinate _resolvedCenterpoint = new Coordinate(0, 0);
 	protected decimal _magVar = 0;
 
 	public bool Resolve(CIFP cifp)
 	{
 		try
 		{
-			_resolvedCenterpoint = Centerpoint.Resolve(cifp).GetCoordinate();
-			_magVar = cifp.Navaids.GetLocalMagneticVariation(_resolvedCenterpoint).Variation;
+			_resolvedCenterpoint = Centerpoint.Resolve(cifp);
+			_magVar = cifp.Navaids.GetLocalMagneticVariation(_resolvedCenterpoint.GetCoordinate()).Variation;
 			return true;
 		}
 		catch { return false; }
 	}
 
-	public abstract IEnumerable<Coordinate?> Draw();
+	public abstract IEnumerable<ICoordinate?> Draw();
 
-	public Coordinate[] ReferencePoints => [_resolvedCenterpoint];
+	public Coordinate[] ReferencePoints => [_resolvedCenterpoint.GetCoordinate()];
+
+	public sealed record Point(PossiblyResolvedWaypoint Centerpoint) : GeoSymbol(Centerpoint, 0)
+	{
+		public override IEnumerable<ICoordinate?> Draw() => [_resolvedCenterpoint];
+	}
 
 	public sealed record Circle(PossiblyResolvedWaypoint Centerpoint, decimal Size) : GeoSymbol(Centerpoint, Size)
 	{
-		public override IEnumerable<Coordinate?> Draw() =>
+		public override IEnumerable<ICoordinate?> Draw() =>
 			Enumerable.Range(0, 37)
 			.Select(r => new TrueCourse(r * 10))
-			.Select(r => (Coordinate?)_resolvedCenterpoint.FixRadialDistance(r, Size));
+			.Select(r => (ICoordinate?)_resolvedCenterpoint.GetCoordinate().FixRadialDistance(r, Size));
 	}
 
 	public sealed record Waypoint(PossiblyResolvedWaypoint Centerpoint, decimal Size) : GeoSymbol(Centerpoint, Size)
@@ -467,7 +619,7 @@ internal abstract record GeoSymbol(PossiblyResolvedWaypoint Centerpoint, decimal
 		const decimal FLARE_1_SCALE = 0.4m;
 		const decimal FLARE_2_SCALE = 0.5m;
 
-		private IEnumerable<Coordinate?> RepeatFirst(IEnumerable<Coordinate?> source)
+		private static IEnumerable<Coordinate?> RepeatFirst(IEnumerable<Coordinate?> source)
 		{
 			Coordinate? first = null;
 			foreach (Coordinate? c in source)
@@ -479,26 +631,26 @@ internal abstract record GeoSymbol(PossiblyResolvedWaypoint Centerpoint, decimal
 			yield return first;
 		}
 
-		public override IEnumerable<Coordinate?> Draw() => [
-			..Enumerable.Range(0, 37).Select(r => new TrueCourse(r * 10)).Select(r => _resolvedCenterpoint.FixRadialDistance(r, Size * INNER_SCALE)), null,
+		public override IEnumerable<ICoordinate?> Draw() => [
+			..Enumerable.Range(0, 37).Select(r => new TrueCourse(r * 10)).Select(r => _resolvedCenterpoint.GetCoordinate().FixRadialDistance(r, Size * INNER_SCALE)), null,
 			..RepeatFirst(Enumerable.Range(1, 4).Select(r => new MagneticCourse(r * 90, _magVar)).SelectMany<MagneticCourse, Coordinate?>(r => [
-				_resolvedCenterpoint.FixRadialDistance(r - 45, Size * INNER_SCALE),
-				_resolvedCenterpoint.FixRadialDistance(r - 30, Size * FLARE_1_SCALE),
-				_resolvedCenterpoint.FixRadialDistance(r - 15, Size * FLARE_2_SCALE),
-				_resolvedCenterpoint.FixRadialDistance(r, Size),
-				_resolvedCenterpoint.FixRadialDistance(r + 15, Size * FLARE_2_SCALE),
-				_resolvedCenterpoint.FixRadialDistance(r + 30, Size * FLARE_1_SCALE),
+				_resolvedCenterpoint.GetCoordinate().FixRadialDistance(r - 45, Size * INNER_SCALE),
+				_resolvedCenterpoint.GetCoordinate().FixRadialDistance(r - 30, Size * FLARE_1_SCALE),
+				_resolvedCenterpoint.GetCoordinate().FixRadialDistance(r - 15, Size * FLARE_2_SCALE),
+				_resolvedCenterpoint.GetCoordinate().FixRadialDistance(r, Size),
+				_resolvedCenterpoint.GetCoordinate().FixRadialDistance(r + 15, Size * FLARE_2_SCALE),
+				_resolvedCenterpoint.GetCoordinate().FixRadialDistance(r + 30, Size * FLARE_1_SCALE),
 			]))
 		];
 	}
 
 	public sealed record Triangle(PossiblyResolvedWaypoint Centerpoint, decimal Size) : GeoSymbol(Centerpoint, Size)
 	{
-		public override IEnumerable<Coordinate?> Draw() => [
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(000m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(120m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(240m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(000m, _magVar), Size),
+		public override IEnumerable<ICoordinate?> Draw() => [
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(000m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(120m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(240m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(000m, _magVar), Size),
 		];
 	}
 
@@ -506,19 +658,19 @@ internal abstract record GeoSymbol(PossiblyResolvedWaypoint Centerpoint, decimal
 	{
 		const decimal INNER_SCALE = 0.15m;
 
-		public override IEnumerable<Coordinate?> Draw()
+		public override IEnumerable<ICoordinate?> Draw()
 		{
 			bool far = true;
 
 			for (uint angle = 0; angle <= 360; angle += 10)
 			{
 				MagneticCourse radial = new(angle, _magVar);
-				yield return _resolvedCenterpoint.FixRadialDistance(radial, far ? Size : Size * INNER_SCALE);
+				yield return _resolvedCenterpoint.GetCoordinate().FixRadialDistance(radial, far ? Size : Size * INNER_SCALE);
 
 				if ((angle + 30) % 60 == 0)
 				{
 					far = !far;
-					yield return _resolvedCenterpoint.FixRadialDistance(radial, far ? Size : Size * INNER_SCALE);
+					yield return _resolvedCenterpoint.GetCoordinate().FixRadialDistance(radial, far ? Size : Size * INNER_SCALE);
 				}
 			}
 		}
@@ -526,82 +678,82 @@ internal abstract record GeoSymbol(PossiblyResolvedWaypoint Centerpoint, decimal
 
 	public sealed record Flag(PossiblyResolvedWaypoint Centerpoint, decimal Size) : GeoSymbol(Centerpoint, Size)
 	{
-		public override IEnumerable<Coordinate?> Draw() => [
+		public override IEnumerable<ICoordinate?> Draw() => [
 			_resolvedCenterpoint,
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(00, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(30, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(00, _magVar), Size * 0.66m),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(00, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(30, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(00, _magVar), Size * 0.66m),
 		];
 	}
 
 	public sealed record Diamond(PossiblyResolvedWaypoint Centerpoint, decimal Size) : GeoSymbol(Centerpoint, Size)
 	{
-		public override IEnumerable<Coordinate?> Draw() => [
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(000m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(090m, _magVar), Size * 0.5m),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(180m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(270m, _magVar), Size * 0.5m),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(000m, _magVar), Size),
+		public override IEnumerable<ICoordinate?> Draw() => [
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(000m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(090m, _magVar), Size * 0.5m),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(180m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(270m, _magVar), Size * 0.5m),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(000m, _magVar), Size),
 		];
 	}
 
 	public sealed record Chevron(PossiblyResolvedWaypoint Centerpoint, decimal Size) : GeoSymbol(Centerpoint, Size)
 	{
-		public override IEnumerable<Coordinate?> Draw() => [
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(240m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(000m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(120m, _magVar), Size),
+		public override IEnumerable<ICoordinate?> Draw() => [
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(240m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(000m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(120m, _magVar), Size),
 		];
 	}
 
 	public sealed record Box(PossiblyResolvedWaypoint Centerpoint, decimal Size) : GeoSymbol(Centerpoint, Size)
 	{
-		public override IEnumerable<Coordinate?> Draw() => [
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(045m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(135m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(225m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(315m, _magVar), Size),
-			_resolvedCenterpoint.FixRadialDistance(new MagneticCourse(045m, _magVar), Size),
+		public override IEnumerable<ICoordinate?> Draw() => [
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(045m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(135m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(225m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(315m, _magVar), Size),
+			_resolvedCenterpoint.GetCoordinate().FixRadialDistance(new MagneticCourse(045m, _magVar), Size),
 		];
 	}
 
 	public sealed record Star(PossiblyResolvedWaypoint Centerpoint, decimal Size) : GeoSymbol(Centerpoint, Size)
 	{
 		const decimal INNER_SCALE = 0.5m;
-		public override IEnumerable<Coordinate?> Draw() =>
+		public override IEnumerable<ICoordinate?> Draw() =>
 			Enumerable.Range(0, 11)
 			.Select(r => new MagneticCourse(r * 36, _magVar))
-			.Select(r => (Coordinate?)_resolvedCenterpoint.FixRadialDistance(r, (int)r.Degrees % 72 == 0 ? Size : Size * INNER_SCALE));
+			.Select(r => (ICoordinate?)_resolvedCenterpoint.GetCoordinate().FixRadialDistance(r, (int)r.Degrees % 72 == 0 ? Size : Size * INNER_SCALE));
 	}
 }
 
 internal abstract record GeoConnector(PossiblyResolvedWaypoint[] Points) : IDrawableGeo
 {
-	protected Coordinate[] _resolvedPoints = [];
+	protected ICoordinate[] _resolvedPoints = [];
 
 	public bool Resolve(CIFP cifp)
 	{
 		try
 		{
-			_resolvedPoints = [.. Points.Select(p => p.Resolve(cifp).GetCoordinate())];
+			_resolvedPoints = [.. Points.Select(p => p.Resolve(cifp))];
 			return true;
 		}
 		catch { return false; }
 	}
 
-	public abstract IEnumerable<Coordinate?> Draw();
+	public abstract IEnumerable<ICoordinate?> Draw();
 
-	public Coordinate[] ReferencePoints => _resolvedPoints;
+	public Coordinate[] ReferencePoints => [.. _resolvedPoints.Select(c => c.GetCoordinate())];
 
 	public sealed record Line(PossiblyResolvedWaypoint[] Points) : GeoConnector(Points)
 	{
-		public override IEnumerable<Coordinate?> Draw() => _resolvedPoints.Cast<Coordinate?>();
+		public override IEnumerable<ICoordinate?> Draw() => _resolvedPoints;
 	}
 
 	/// <param name="Size">STARS default 1nmi.</param>
 	public sealed record Dash(PossiblyResolvedWaypoint[] Points, decimal Size) : GeoConnector(Points)
 	{
-		public override IEnumerable<Coordinate?> Draw()
+		public override IEnumerable<ICoordinate?> Draw()
 		{
 			if (_resolvedPoints.Length < 2)
 				yield break;
@@ -609,12 +761,12 @@ internal abstract record GeoConnector(PossiblyResolvedWaypoint[] Points) : IDraw
 			bool lastReturned = false;
 			foreach (var (from, to) in _resolvedPoints[..^1].Zip(_resolvedPoints[1..]))
 			{
-				if (from.GetBearingDistance(to).bearing is not TrueCourse direction) continue;
+				if (from.GetCoordinate().GetBearingDistance(to.GetCoordinate()).bearing is not TrueCourse direction) continue;
 				Coordinate next;
 
-				for (Coordinate startPoint = from; startPoint.DistanceTo(to) > Size; startPoint = next)
+				for (Coordinate startPoint = from.GetCoordinate(); startPoint.DistanceTo(to.GetCoordinate()) > Size; startPoint = next)
 				{
-					next = startPoint.FixRadialDistance(direction, Math.Min(Size, startPoint.DistanceTo(to)));
+					next = startPoint.FixRadialDistance(direction, Math.Min(Size, startPoint.DistanceTo(to.GetCoordinate())));
 
 					if (lastReturned)
 					{
@@ -633,22 +785,110 @@ internal abstract record GeoConnector(PossiblyResolvedWaypoint[] Points) : IDraw
 	/// <param name="Size">STARS default 0.5nmi.</param>
 	public sealed record Arrow(PossiblyResolvedWaypoint[] Points, decimal Size) : GeoConnector(Points)
 	{
-		public override IEnumerable<Coordinate?> Draw()
+		public override IEnumerable<ICoordinate?> Draw()
 		{
 			if (_resolvedPoints.Length < 2)
 				yield break;
 
 			foreach (var (from, to) in _resolvedPoints[..^1].Zip(_resolvedPoints[1..]))
 			{
-				if (to.GetBearingDistance(from).bearing is not Course direction) continue;
+				if (to.GetCoordinate().GetBearingDistance(from.GetCoordinate()).bearing is not Course direction) continue;
 
 				yield return from;
 				yield return to;
-				yield return to.FixRadialDistance(direction + 30m, Size);
+				yield return to.GetCoordinate().FixRadialDistance(direction + 30m, Size);
 				yield return to;
-				yield return to.FixRadialDistance(direction - 30m, Size);
+				yield return to.GetCoordinate().FixRadialDistance(direction - 30m, Size);
 				yield return to;
 			}
+		}
+	}
+
+	public sealed record Arc(PossiblyResolvedWaypoint[] Points, Arc.Direction Towards) : GeoConnector(Points)
+	{
+		public enum Direction : ushort
+		{
+			North = 0,
+			South = 180,
+			East = 90,
+			West = 270
+		}
+
+		public override IEnumerable<ICoordinate?> Draw()
+		{
+			if (_resolvedPoints.Length == 0) yield break;
+
+			yield return _resolvedPoints[0];
+
+			if (_resolvedPoints.Length == 1) yield break;
+
+			foreach (var (from, to) in _resolvedPoints[..^1].Zip(_resolvedPoints[1..]).Select(p => (p.First.GetCoordinate(), p.Second.GetCoordinate())))
+			{
+				var fromToTo = from.GetBearingDistance(to);
+				Coordinate centerpoint = from.FixRadialDistance(fromToTo.bearing ?? new(0), fromToTo.distance / 2);
+
+				TrueCourse startAngle = centerpoint.GetBearingDistance(from).bearing ?? new(0),
+							 endAngle = centerpoint.GetBearingDistance(to).bearing ?? new(0);
+				int step = Math.Sign(startAngle.Angle(new TrueCourse((decimal)Towards)));
+				step = (step == 0 ? 1 : step) * 15;
+
+				for (Course angle = startAngle; (int)angle.Degrees % 360 != (int)endAngle.Degrees % 360; angle += (Math.Abs(endAngle.Angle(angle)) < Math.Abs(step)) ? angle.Angle(endAngle) : step)
+					yield return centerpoint.FixRadialDistance(angle, fromToTo.distance / 2);
+
+				if (to != _resolvedPoints[^1].GetCoordinate())
+					yield return to;
+			}
+
+			if (_resolvedPoints.Length > 1)
+				yield return _resolvedPoints[^1];
+		}
+	}
+
+	/// <summary>Dashes are 10°.</summary>
+	public sealed record DashArc(PossiblyResolvedWaypoint[] Points, Arc.Direction Towards) : GeoConnector(Points)
+	{
+		public override IEnumerable<ICoordinate?> Draw()
+		{
+			if (_resolvedPoints.Length == 0) yield break;
+
+			yield return _resolvedPoints[0];
+
+			if (_resolvedPoints.Length == 1) yield break;
+
+			foreach (var (from, to) in _resolvedPoints[..^1].Zip(_resolvedPoints[1..]).Select(p => (p.First.GetCoordinate(), p.Second.GetCoordinate())))
+			{
+				var fromToTo = from.GetBearingDistance(to);
+				Coordinate centerpoint = from.FixRadialDistance(fromToTo.bearing ?? new(0), fromToTo.distance / 2);
+
+				TrueCourse startAngle = centerpoint.GetBearingDistance(from).bearing ?? new(0),
+							 endAngle = centerpoint.GetBearingDistance(to).bearing ?? new(0);
+				int step = Math.Sign(startAngle.Angle(new TrueCourse((decimal)Towards)));
+				step = (step == 0 ? 1 : step) * 10;
+				Coordinate? last = null;
+
+				for (Course angle = startAngle; (int)angle.Degrees % 360 != (int)endAngle.Degrees % 360; angle += (Math.Abs(endAngle.Angle(angle)) < Math.Abs(step)) ? angle.Angle(endAngle) : step)
+				{
+					yield return last;
+
+					Coordinate next = centerpoint.FixRadialDistance(angle, fromToTo.distance / 2);
+					if (last is Coordinate l)
+					{
+						yield return next;
+						last = null;
+					}
+					else
+					{
+						yield return null;
+						last = next;
+					}
+				}
+
+				if (to != _resolvedPoints[^1].GetCoordinate())
+					yield return to;
+			}
+
+			if (_resolvedPoints.Length > 1)
+				yield return _resolvedPoints[^1];
 		}
 	}
 }
