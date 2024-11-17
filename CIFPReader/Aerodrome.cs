@@ -68,7 +68,7 @@ public abstract record Aerodrome(string Header,
 }
 
 public record Airport(
-	string Identifier, string IATACode, bool IFR, ICoordinate Location, AltitudeMSL Elevation,
+	string Identifier, string IATACode, bool IFR, ICoordinate Location, decimal MagneticVariation, AltitudeMSL Elevation,
 	Altitude TransitionAlt, FlightLevel TransitionFL, Aerodrome.AirportUsage Usage, string Name
 	) : Aerodrome("PA", Identifier, IATACode, Location, Elevation, TransitionAlt, TransitionFL, Usage, Name)
 {
@@ -96,7 +96,7 @@ public record Airport(
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 
-		return new(identifier, iataCode, ifr, location, elevation, transitionAlt, transitionLevel, usage, name);
+		return new(identifier, iataCode, ifr, location, magVar, elevation, transitionAlt, transitionLevel, usage, name);
 	}
 }
 

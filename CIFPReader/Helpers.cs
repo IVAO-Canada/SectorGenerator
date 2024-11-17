@@ -8,7 +8,7 @@ using static CIFPReader.ProcedureLine;
 
 namespace CIFPReader;
 
-public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Aerodrome> Aerodromes, Dictionary<string, HashSet<ICoordinate>> Fixes, Dictionary<string, HashSet<Navaid>> Navaids, Dictionary<string, HashSet<Airway>> Airways, Dictionary<string, HashSet<Procedure>> Procedures, Dictionary<string, HashSet<Runway>> Runways, Dictionary<string, (double Latitude, double Longitude)[]> FirBoundaries, Dictionary<string, string[]> FirNeighbours)
+public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Aerodrome> Aerodromes, Dictionary<string, HashSet<ICoordinate>> Fixes, Dictionary<string, HashSet<Navaid>> Navaids, Dictionary<string, HashSet<Airway>> Airways, Dictionary<string, HashSet<Procedure>> Procedures, Dictionary<string, HashSet<Runway>> Runways, Dictionary<string, HashSet<(double Latitude, double Longitude)[]>> FirBoundaries, Dictionary<string, string[]> FirNeighbours)
 {
 	private CIFP() : this([], [], [], [], [], [], [], [], [], []) { }
 
@@ -63,7 +63,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 
 					FirBoundaries.Add(
 						fir.Key,
-						boundaryRuns.Count > 0 ? [.. boundaryRuns.MaxBy(r => r.Count)] : []
+						[..boundaryRuns.Select(r => r.ToArray())]
 					);
 
 					FirNeighbours.Add(
@@ -102,27 +102,6 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 					--lineIndex;
 
 					airspaces.Add(new([.. segments]));
-				}
-			}),
-			Task.Run(() =>
-			{
-				// Aerodromes
-				foreach (TblAirport ap in airports)
-				{
-					Airport a = new(ap.AirportIdentifier, ap.AirportIdentifier3letter ?? "", ap.IfrCapability == "Y",
-						new Coordinate(ap.AirportRefLatitude, ap.AirportRefLongitude), new AltitudeMSL(ap.Elevation),
-						new AltitudeMSL(ap.TransitionAltitude ?? 180000), new(ap.TransitionLevel ?? 180), Aerodrome.AirportUsage.Public,
-						ap.AirportName ?? ""
-					);
-
-					Aerodromes.Add(a.Identifier, a);
-					lock (Fixes)
-					{
-						if (Fixes.TryGetValue(a.Identifier, out var fixes))
-							fixes.Add(a.Location);
-						else
-							Fixes.Add(a.Identifier, [a.Location]);
-					}
 				}
 			}),
 			Task.Run(() =>
@@ -313,6 +292,26 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 				)));
 			})
 		);
+
+		// Aerodromes (done later for magvar)
+		foreach (TblAirport ap in airports)
+		{
+			Coordinate location = new(ap.AirportRefLatitude, ap.AirportRefLongitude);
+			Airport a = new(ap.AirportIdentifier, ap.AirportIdentifier3letter ?? "", ap.IfrCapability == "Y",
+				location, Navaids.GetLocalMagneticVariation(location).Variation, new AltitudeMSL(ap.Elevation),
+				new AltitudeMSL(ap.TransitionAltitude ?? 180000), new(ap.TransitionLevel ?? 180), Aerodrome.AirportUsage.Public,
+				ap.AirportName ?? ""
+			);
+
+			Aerodromes.Add(a.Identifier, a);
+			lock (Fixes)
+			{
+				if (Fixes.TryGetValue(a.Identifier, out var fixes))
+					fixes.Add(a.Location);
+				else
+					Fixes.Add(a.Identifier, [a.Location]);
+			}
+		}
 
 		ConcurrentDictionary<string, HashSet<Procedure>> procs = [];
 
@@ -1235,7 +1234,7 @@ public static class Extensions
 
 		if (refCoord is not null)
 		{
-			coord = value.MinBy(wp => wp.DistanceTo(refCoord.Value)) switch {
+			coord = value.MinBy(wp => wp.GetCoordinate().DistanceTo(refCoord.Value)) switch {
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null
