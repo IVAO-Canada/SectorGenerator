@@ -17,9 +17,9 @@ public partial class TblEnrouteWaypoint
 
     public string? WaypointUsage { get; set; }
 
-    public double? WaypointLatitude { get; set; }
+    public decimal? WaypointLatitude { get; set; }
 
-    public double? WaypointLongitude { get; set; }
+    public decimal? WaypointLongitude { get; set; }
 
     public string? Id { get; set; }
 }

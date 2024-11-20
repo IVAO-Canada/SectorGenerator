@@ -36,6 +36,8 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		TblStar[] stars = [.. airac.TblStars.Where(s => s.AirportIdentifier.StartsWith(prefix))];
 		TblIap[] iaps = [.. airac.TblIaps.Where(s => s.AirportIdentifier.StartsWith(prefix))];
 		TblEnrouteAirway[] airways = [.. airac.TblEnrouteAirways.Where(f => f.AreaCode == "CAN")];
+		TblEnrouteWaypoint[] enrWaypoints = [.. airac.TblEnrouteWaypoints.Where(f => f.AreaCode == "CAN")];
+		TblTerminalWaypoint[] tmlWaypoints = [.. airac.TblTerminalWaypoints.Where(f => f.AreaCode == "CAN")];
 
 		Altitude? parseAlt(string? alt) =>
 			alt is null ? null :
@@ -363,6 +365,25 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 					new(aw.MinimumAltitude1 is int inma1 ? new AltitudeMSL(inma1) : null, aw.MaximumAltitude is int inma ? new AltitudeMSL(inma) : null),
 					new(aw.MinimumAltitude1 is int outma1 ? new AltitudeMSL(outma1) : null, aw.MaximumAltitude is int outma ? new AltitudeMSL(outma) : null)
 				)));
+			}),
+			Task.Run(() =>
+			{
+				// Fixes
+
+				lock (Fixes)
+				{
+					foreach (var enrWp in enrWaypoints.Where(wp => wp.WaypointLatitude is not null && wp.WaypointLongitude is not null))
+						if (Fixes.TryGetValue(enrWp.WaypointIdentifier, out var fixSet))
+							fixSet.Add(new NamedCoordinate(enrWp.WaypointIdentifier, new(enrWp.WaypointLatitude!.Value, enrWp.WaypointLongitude!.Value)));
+						else
+							Fixes[enrWp.WaypointIdentifier] = [new NamedCoordinate(enrWp.WaypointIdentifier, new(enrWp.WaypointLatitude!.Value, enrWp.WaypointLongitude!.Value))];
+
+					foreach (var tmlWp in tmlWaypoints.Where(wp => wp.WaypointLatitude is not null && wp.WaypointLongitude is not null))
+						if (Fixes.TryGetValue(tmlWp.WaypointIdentifier, out var fixSet))
+							fixSet.Add(new NamedCoordinate(tmlWp.WaypointIdentifier, new(tmlWp.WaypointLatitude!.Value, tmlWp.WaypointLongitude!.Value)));
+						else
+							Fixes[tmlWp.WaypointIdentifier] = [new NamedCoordinate(tmlWp.WaypointIdentifier, new(tmlWp.WaypointLatitude!.Value, tmlWp.WaypointLongitude!.Value))];
+				}
 			})
 		);
 

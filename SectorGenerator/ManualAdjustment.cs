@@ -593,7 +593,11 @@ internal abstract record GeoSymbol(PossiblyResolvedWaypoint Centerpoint, decimal
 			_magVar = cifp.Navaids.GetLocalMagneticVariation(_resolvedCenterpoint.GetCoordinate()).Variation;
 			return true;
 		}
-		catch { return false; }
+		catch
+		{
+			Console.WriteLine($"Could not find {Centerpoint.FixName}");
+			return false;
+		}
 	}
 
 	public abstract IEnumerable<ICoordinate?> Draw();
