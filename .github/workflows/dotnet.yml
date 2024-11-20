@@ -27,10 +27,12 @@ jobs:
     - name: Compress
       uses: montudor/action-zip@v1
       with:
-        args: zip -qq -r publish.zip publish/*
+        args: zip -qq -r publish.zip publish
     - name: Release
       uses: ncipollo/release-action@v1
       with:
         tag: latest
-        commit: main
+        makeLatest: true
+        omitBody: true
+        allowUpdates: true
         artifacts: "publish.zip"
