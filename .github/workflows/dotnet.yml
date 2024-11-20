@@ -1,0 +1,36 @@
+# This workflow will build a .NET project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+
+name: .NET
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Publish
+      run: dotnet publish SectorGenerator/SectorGenerator.csproj -o publish
+    - name: Compress
+      uses: montudor/action-zip@v1
+      with:
+        args: zip -qq -r publish.zip publish/*
+    - name: Release
+      uses: ncipollo/release-action@v1
+      with:
+        tag: latest
+        commit: main
+        artifacts: "publish.zip"
