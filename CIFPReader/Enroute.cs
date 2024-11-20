@@ -146,7 +146,7 @@ public class Airway : IEnumerable<Airway.AirwayFix>
 		if (fixLines.Length < 2)
 			throw new ArgumentException("Airway must have at least two points.", nameof(fixLines));
 
-		List<AirwayFix> fs = [new(fixLines.First(), fixDb, fixLines.First().Fix is UnresolvedWaypoint uw ? uw.Resolve(fixDb, (ICoordinate?)fixLines[1].Fix).Position : (ICoordinate)fixLines.First().Fix)];
+		List<AirwayFix> fs = [new(fixLines.First(), fixDb, fixLines.First().Fix is UnresolvedWaypoint uw ? uw.Resolve(fixDb, ((ICoordinate?)fixLines[1].Fix)?.GetCoordinate()).Position : (ICoordinate)fixLines.First().Fix)];
 
 		foreach (AirwayFixLine afl in fixLines.Skip(1))
 			fs.Add(new(afl, fixDb, fs.Last().Point.GetCoordinate()));
@@ -174,7 +174,7 @@ public class Airway : IEnumerable<Airway.AirwayFix>
 		public AirwayFix(AirwayFixLine fix, Dictionary<string, HashSet<ICoordinate>> fixes, ICoordinate reference)
 		{
 			Name = fix.Fix is UnresolvedWaypoint uwn ? uwn.Name : ((NamedCoordinate)fix.Fix).Name;
-			Point = fix.Fix is UnresolvedWaypoint uwp ? uwp.Resolve(fixes, reference) : (ICoordinate)fix.Fix;
+			Point = fix.Fix is UnresolvedWaypoint uwp ? uwp.Resolve(fixes, reference.GetCoordinate()) : (ICoordinate)fix.Fix;
 			(InboundAltitude, OutboundAltitude) = (fix.InboundAltitude, fix.OutboundAltitude);
 		}
 	}

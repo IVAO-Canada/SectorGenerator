@@ -32,6 +32,8 @@ public abstract record Course : IProcedureVia
 		left with { Degrees = (left.Degrees - right + 360) % 360 };
 	public static Course operator +(Course left, decimal right) =>
 		left with { Degrees = (left.Degrees + right + 360) % 360 };
+	public static Course operator %(Course left, decimal right) =>
+		left with { Degrees = (left.Degrees % right + 360) % 360 };
 
 	/// <summary>
 	/// Gets the angle relative to another course.

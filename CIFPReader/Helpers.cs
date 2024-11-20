@@ -47,23 +47,96 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		Task.WaitAll(
 			Task.Run(() =>
 			{
+				Coordinate? arcOrigin = null;
+				decimal arcDist = 0;
+				bool clockwiseArc = true;
+
 				// FIR boundaries
 				foreach (var fir in firBoundaries.GroupBy(b => b.FirUirIdentifier))
 				{
 					List<List<(double Lat, double Lon)>> boundaryRuns = [];
+					void arc(bool returnToOrigin = false)
+					{
+						if (arcOrigin is not Coordinate origin) return;
+
+						var run = boundaryRuns[^1];
+						Coordinate arcTo = new((decimal)run[^1].Lat, (decimal)run[^1].Lon);
+						Coordinate arcFrom = returnToOrigin ? arcTo : new((decimal)run[^2].Lat, (decimal)run[^2].Lon);
+						if (returnToOrigin) arcTo = new((decimal)run[0].Lat, (decimal)run[0].Lon);
+						else run.RemoveAt(run.Count - 1);
+
+						decimal step = clockwiseArc ? 5 : -5;
+						Course startAngle = origin.GetBearingDistance(arcFrom).bearing ?? new(0);
+						Course endAngle = origin.GetBearingDistance(arcTo).bearing ?? new(0);
+
+						for (
+							startAngle += Math.Sign(step) * (Math.Abs(step) - startAngle.Degrees % step);
+							Math.Abs(startAngle.Angle(endAngle)) > Math.Abs(step);
+							startAngle += step
+						)
+						{
+							var c = origin.FixRadialDistance(startAngle, arcDist);
+							run.Add(((double)c.Latitude, (double)c.Longitude));
+						}
+
+						var finalArcPoint = origin.FixRadialDistance(startAngle, arcDist);
+						run.Add(((double)finalArcPoint.Latitude, (double)finalArcPoint.Longitude));
+						run.Add(((double)arcTo.Latitude, (double)arcTo.Longitude));
+						arcOrigin = null;
+					}
+
 					int lastSeq = int.MaxValue;
 					foreach (TblFirUir point in fir.Where(i => i.FirUirIndicator is "F" or "U"))
 					{
 						if (point.Seqno < lastSeq)
 							boundaryRuns.Add([]);
 
-						boundaryRuns[^1].Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
+						switch (point.BoundaryVia?[0])
+						{
+							case 'G':
+								// Great circle segment
+								boundaryRuns[^1].Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
+								arc(point.BoundaryVia.EndsWith('E'));
+								break;
+
+							case 'C':
+								// Circle
+								break;
+
+							case 'H':
+								// Rhumb line; just approximate it.
+								boundaryRuns[^1].Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
+								arc(point.BoundaryVia.EndsWith('E'));
+								break;
+
+							case 'L':
+								// CCW arc
+								boundaryRuns[^1].Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
+								arc(point.BoundaryVia.EndsWith('E'));
+								arcOrigin = new(point.ArcOriginLatitude!.Value, point.ArcOriginLongitude!.Value);
+								clockwiseArc = false;
+								arcDist = point.ArcDistance!.Value;
+								break;
+
+							case 'R':
+								// CW arc
+								boundaryRuns[^1].Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
+								arc(point.BoundaryVia.EndsWith('E'));
+								arcOrigin = new(point.ArcOriginLatitude!.Value, point.ArcOriginLongitude!.Value);
+								clockwiseArc = true;
+								arcDist = point.ArcDistance!.Value;
+								break;
+
+							default: throw new NotImplementedException();
+						}
 						lastSeq = point.Seqno;
 					}
 
+					arcOrigin = null;
+
 					FirBoundaries.Add(
 						fir.Key,
-						[..boundaryRuns.Select(r => r.ToArray())]
+						[.. boundaryRuns.Select(r => r.ToArray())]
 					);
 
 					FirNeighbours.Add(
