@@ -38,32 +38,46 @@ public abstract record Aerodrome(string Client, string Header,
 	{
 		public override Aerodrome? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
 		{
-			string strVal = reader.GetString() ?? throw new JsonException();
-			RecordLine? baseCall = JsonSerializer.Deserialize<RecordLine>(strVal, options);
+			if (reader.TokenType != JsonTokenType.StartArray || !reader.Read() || reader.TokenType != JsonTokenType.String)
+				throw new JsonException();
 
-			return baseCall?.Header switch {
-				"PA" => JsonSerializer.Deserialize<Airport>(strVal, options),
-				"HA" => JsonSerializer.Deserialize<Heliport>(strVal, options),
+			string type = reader.GetString() ?? "A";
+
+			if (!reader.Read())
+				throw new JsonException();
+
+			Aerodrome? retval = type switch {
+				"A" => JsonSerializer.Deserialize<Airport>(ref reader, options),
+				"H" => JsonSerializer.Deserialize<Heliport>(ref reader, options),
 
 				_ => throw new JsonException()
 			};
+
+			if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray)
+				throw new JsonException();
+
+			return retval;
 		}
 
 		public override void Write(Utf8JsonWriter writer, Aerodrome value, JsonSerializerOptions options)
 		{
+			writer.WriteStartArray();
 			switch (value)
 			{
 				case Airport a:
-					writer.WriteStringValue(JsonSerializer.Serialize(a));
+					writer.WriteStringValue("A");
+					JsonSerializer.Serialize(writer, a, options);
 					break;
 
 				case Heliport h:
-					writer.WriteStringValue(JsonSerializer.Serialize(h));
+					writer.WriteStringValue("H");
+					JsonSerializer.Serialize(writer, h, options);
 					break;
 
 				default:
 					throw new JsonException();
 			}
+			writer.WriteEndArray();
 		}
 	}
 }
@@ -94,7 +108,7 @@ public record Airport(string Client,
 		FlightLevel transitionLevel = new(string.IsNullOrWhiteSpace(line[70..75]) ? 180 : (int.Parse(line[75..80]) / 100));
 		AirportUsage usage = (AirportUsage)line[80];
 
-		string name = line[93..123];
+		string name = line[93..123].Trim();
 		int frn = int.Parse(line[123..128]);
 		int cycle = int.Parse(line[128..132]);
 

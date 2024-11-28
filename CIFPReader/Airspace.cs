@@ -926,7 +926,7 @@ public record ControlledAirspace(string Client,
 
 		public abstract override string ToString();
 	}
-
+	
 	public record BoundaryArc(BoundaryViaType BoundaryVia, ICoordinate ArcOrigin, decimal ArcDistance, TrueCourse ArcBearing, Coordinate ArcVertex) : BoundarySegment(BoundaryVia, ArcVertex)
 	{
 		public static new BoundaryArc Parse(string data)
