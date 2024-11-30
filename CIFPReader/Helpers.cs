@@ -18,11 +18,14 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 	{
 		if (airacSqlitePath.StartsWith("s3://", StringComparison.InvariantCultureIgnoreCase))
 		{
-			AmazonS3Client client = new();
-			string[] bucketParts = airacSqlitePath["s3://".Length..].Split('/');
-			airacSqlitePath = string.Join('/', bucketParts[1..]);
-			var resp = client.GetObjectAsync(bucketParts[0], airacSqlitePath).Result;
-			resp.WriteResponseStreamToFileAsync(airacSqlitePath, false, CancellationToken.None).RunSynchronously();
+			Task.Run(async () =>
+			{
+				AmazonS3Client client = new();
+				string[] bucketParts = airacSqlitePath["s3://".Length..].Split('/');
+				airacSqlitePath = string.Join('/', bucketParts[1..]);
+				var resp = await client.GetObjectAsync(bucketParts[0], airacSqlitePath);
+				await resp.WriteResponseStreamToFileAsync(airacSqlitePath, false, CancellationToken.None);
+			}).Wait();
 		}
 
 		if (!File.Exists(airacSqlitePath))
