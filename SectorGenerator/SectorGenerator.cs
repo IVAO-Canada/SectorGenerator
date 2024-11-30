@@ -39,10 +39,10 @@ public class Program
 		Console.Write("Reading AIRAC data..."); await Console.Out.FlushAsync();
 		CIFP cifp = new(config.AiracFile, "C");
 
-		Dictionary<string, HashSet<(double Latitude, double Longitude)[]>> firBoundaries = cifp.FirBoundaries;
+		Dictionary<string, HashSet<((double Latitude, double Longitude)[] Points, string Label)>> firBoundaries = cifp.FirBoundaries;
 		Dictionary<string, string[]> firNeighbours = cifp.FirNeighbours;
 		string[] targetFirs = [.. firBoundaries.Keys.Where(k => k[0] == 'C')];
-		bool IsInFir(string fir, ICoordinate point) => firBoundaries[fir].Any(b => IsInPolygon(b, point));
+		bool IsInFir(string fir, ICoordinate point) => firBoundaries[fir].Any(b => IsInPolygon(b.Points, point));
 		Console.WriteLine(" Done!");
 
 #if OSM
@@ -144,7 +144,7 @@ public class Program
 		(string Fir, string Shape)[] firWebeyeShapes = [..
 			firBoundaries.Where(b => targetFirs.Contains(b.Key)).Select(b => (
 				b.Key,
-				string.Join("\r\n", b.Value.SelectMany(v => v).Reverse().Select(p => $"{p.Latitude:00.0####}:{(p.Longitude > 0 ? p.Longitude - 360 : p.Longitude):000.0####}").ToArray())
+				string.Join("\r\n", b.Value.SelectMany(v => v.Points).Reverse().Select(p => $"{p.Latitude:00.0####}:{(p.Longitude > 0 ? p.Longitude - 360 : p.Longitude):000.0####}").ToArray())
 			))
 		];
 
@@ -230,7 +230,7 @@ public class Program
 				.Where(kvp => targetFirs.Contains(kvp.Key))
 				.ToDictionary(
 					b => b.Key,
-					b => new Way(0, [.. b.Value.SelectMany(v => v).Select(n => new Node(0, n.Latitude, n.Longitude, FrozenDictionary<string, string>.Empty))], FrozenDictionary<string, string>.Empty)
+					b => new Way(0, [.. b.Value.SelectMany(v => v.Points).Select(n => new Node(0, n.Latitude, n.Longitude, FrozenDictionary<string, string>.Empty))], FrozenDictionary<string, string>.Empty)
 				)
 			).ToDictionary(
 				kvp => kvp.Key,
@@ -455,15 +455,15 @@ F;high.artcc
 			IEnumerable<string> generateBoundary(string fir)
 			{
 				int iter = 0;
-				foreach ((double Latitude, double Longitude)[] points in firBoundaries[fir])
+				foreach (var (points, label) in firBoundaries[fir])
 				{
 					++iter;
 					if (points.Length < 2)
 						continue;
 
-					yield return $"L;{fir};{points.Average(bp => bp.Latitude):00.0####};{points.Average(bp => bp.Longitude):000.0####};7;";
+					yield return $"L;{label};{points.Average(bp => bp.Latitude):00.0####};{points.Average(bp => bp.Longitude):000.0####};7;";
 
-					foreach (var bp in points)
+					foreach (var bp in points.Append(points[0]))
 						yield return $"T;{fir}_{iter};{bp.Latitude:00.0####};{bp.Longitude:000.0####};";
 				}
 			}
@@ -527,7 +527,7 @@ F;coast.geo
 			string polyfillBlock = $@"[FILLCOLOR]
 F;online.ply
 ";
-			File.WriteAllText(Path.Combine(firFolder, "online.ply"), $@"{WebeyeAirspaceDrawing.ToPolyfillPath($"{fir}_CTR", "CTR", [..firBoundaries[fir].SelectMany(p => p)])}
+			File.WriteAllText(Path.Combine(firFolder, "online.ply"), $@"{WebeyeAirspaceDrawing.ToPolyfillPath($"{fir}_CTR", "CTR", [..firBoundaries[fir].SelectMany(p => p.Points)])}
 
 {string.Join("\r\n\r\n",
 			targetFirs.Prepend(fir).Distinct().SelectMany(fir => positionFirs[fir]

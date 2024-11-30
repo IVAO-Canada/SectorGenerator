@@ -1,3 +1,5 @@
+using Amazon.S3;
+
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -8,12 +10,21 @@ using static CIFPReader.ProcedureLine;
 
 namespace CIFPReader;
 
-public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Aerodrome> Aerodromes, Dictionary<string, HashSet<ICoordinate>> Fixes, Dictionary<string, HashSet<Navaid>> Navaids, Dictionary<string, HashSet<Airway>> Airways, Dictionary<string, HashSet<Procedure>> Procedures, Dictionary<string, HashSet<Runway>> Runways, Dictionary<string, HashSet<(double Latitude, double Longitude)[]>> FirBoundaries, Dictionary<string, string[]> FirNeighbours)
+public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Aerodrome> Aerodromes, Dictionary<string, HashSet<ICoordinate>> Fixes, Dictionary<string, HashSet<Navaid>> Navaids, Dictionary<string, HashSet<Airway>> Airways, Dictionary<string, HashSet<Procedure>> Procedures, Dictionary<string, HashSet<Runway>> Runways, Dictionary<string, HashSet<((double Latitude, double Longitude)[] Points, string Label)>> FirBoundaries, Dictionary<string, string[]> FirNeighbours)
 {
 	private CIFP() : this([], [], [], [], [], [], [], [], [], []) { }
 
 	public CIFP(string airacSqlitePath, string prefix = "") : this()
 	{
+		if (airacSqlitePath.StartsWith("s3://", StringComparison.InvariantCultureIgnoreCase))
+		{
+			AmazonS3Client client = new();
+			string[] bucketParts = airacSqlitePath["s3://".Length..].Split('/');
+			airacSqlitePath = string.Join('/', bucketParts[1..]);
+			var resp = client.GetObjectAsync(bucketParts[0], airacSqlitePath).Result;
+			resp.WriteResponseStreamToFileAsync(airacSqlitePath, false, CancellationToken.None).RunSynchronously();
+		}
+
 		if (!File.Exists(airacSqlitePath))
 			throw new FileNotFoundException($"Could not locate {airacSqlitePath}. Make sure it exists!");
 
@@ -56,12 +67,12 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 				// FIR boundaries
 				foreach (var fir in firBoundaries.GroupBy(b => b.FirUirIdentifier))
 				{
-					List<List<(double Lat, double Lon)>> boundaryRuns = [];
+					List<(List<(double Lat, double Lon)> points, string label)> boundaryRuns = [];
 					void arc(bool returnToOrigin = false)
 					{
 						if (arcOrigin is not Coordinate origin) return;
 
-						var run = boundaryRuns[^1];
+						var run = boundaryRuns[^1].points;
 						Coordinate arcTo = new((decimal)run[^1].Lat, (decimal)run[^1].Lon);
 						Coordinate arcFrom = returnToOrigin ? arcTo : new((decimal)run[^2].Lat, (decimal)run[^2].Lon);
 						if (returnToOrigin) arcTo = new((decimal)run[0].Lat, (decimal)run[0].Lon);
@@ -88,16 +99,24 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 					}
 
 					int lastSeq = int.MaxValue;
-					foreach (TblFirUir point in fir.Where(i => i.FirUirIndicator is "F" or "U"))
+
+					foreach (TblFirUir point in fir.Where(i => (i.AreaCode is "CAN" && !(i.FirUirIndicator is "C" or "A")) || i.FirUirIndicator is "F" or "U"))
 					{
 						if (point.Seqno < lastSeq)
-							boundaryRuns.Add([]);
+						{
+							string name = point.FirUirIdentifier;
+							if (!(point.UirUpperLimit == "UNLTD" && point.UirLowerLimit == "GND") && (point.FirUirIdentifier is not string id || id != "UNLTD") && point.UirLowerLimit is string ull && point.UirUpperLimit is string uul)
+								name += $" - {ull.TrimStart('0')} TO {uul.TrimStart('0')}";
+
+							boundaryRuns.Add(([], name));
+							arcOrigin = null;
+						}
 
 						switch (point.BoundaryVia?[0])
 						{
 							case 'G':
 								// Great circle segment
-								boundaryRuns[^1].Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
+								boundaryRuns[^1].points.Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
 								arc(point.BoundaryVia.EndsWith('E'));
 								break;
 
@@ -107,13 +126,13 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 
 							case 'H':
 								// Rhumb line; just approximate it.
-								boundaryRuns[^1].Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
+								boundaryRuns[^1].points.Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
 								arc(point.BoundaryVia.EndsWith('E'));
 								break;
 
 							case 'L':
 								// CCW arc
-								boundaryRuns[^1].Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
+								boundaryRuns[^1].points.Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
 								arc(point.BoundaryVia.EndsWith('E'));
 								arcOrigin = new(point.ArcOriginLatitude!.Value, point.ArcOriginLongitude!.Value);
 								clockwiseArc = false;
@@ -122,7 +141,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 
 							case 'R':
 								// CW arc
-								boundaryRuns[^1].Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
+								boundaryRuns[^1].points.Add((point.FirUirLatitude!.Value, point.FirUirLongitude!.Value));
 								arc(point.BoundaryVia.EndsWith('E'));
 								arcOrigin = new(point.ArcOriginLatitude!.Value, point.ArcOriginLongitude!.Value);
 								clockwiseArc = true;
@@ -134,11 +153,9 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 						lastSeq = point.Seqno;
 					}
 
-					arcOrigin = null;
-
 					FirBoundaries.Add(
 						fir.Key,
-						[.. boundaryRuns.Select(r => r.ToArray())]
+						[.. boundaryRuns.Select(r => (r.points.ToArray(), r.label))]
 					);
 
 					FirNeighbours.Add(
@@ -203,6 +220,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 							s1.Add(r.Endpoint);
 						else
 							Fixes.Add("RW" + r.Identifier, [r.Endpoint]);
+
 						if (Fixes.TryGetValue(r.Airport + "/" + r.Identifier, out var s2))
 							s2.Add(r.Endpoint);
 						else
