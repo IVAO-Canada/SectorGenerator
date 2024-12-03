@@ -248,7 +248,7 @@ public record SIDLine(string Client,
 			  );
 
 		AltitudeMSL? transitionAltitude = getAlt(line[94..99]);
-		SpeedRestriction? speedRestriction =
+		SpeedRestriction speedRestriction =
 			string.IsNullOrWhiteSpace(line[99..102])
 			? SpeedRestriction.Unrestricted
 			: new(null, uint.Parse(line[99..102]));

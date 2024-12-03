@@ -23,19 +23,6 @@ public class Program
 		(string apiToken, string apiRefreshToken) = await GetApiKeysAsync(config);
 		Console.WriteLine($" Done! (Refresh: {apiRefreshToken})");
 
-		List<ManualAdjustment> manualAdjustments = [];
-		if (config.ManualAdjustmentsFolder is string maf && Directory.Exists(maf))
-		{
-			Console.Write($"Located manual adjustments... "); await Console.Out.FlushAsync();
-			string[] files = [.. Directory.EnumerateFiles(maf, "*.maf", SearchOption.AllDirectories)];
-			Console.Write($"{files.Length} files detected... "); await Console.Out.FlushAsync();
-
-			foreach (string filepath in files)
-				manualAdjustments.AddRange(ManualAdjustment.Process(File.ReadAllText(filepath)));
-
-			Console.WriteLine($"Done! Loaded {manualAdjustments.Count} adjustments.");
-		}
-
 		Console.Write("Downloading FAA ARCGIS data..."); await Console.Out.FlushAsync();
 		Dictionary<string, HashSet<(double Latitude, double Longitude)[]>> artccBoundaries = [];
 		Dictionary<string, string[]> artccNeighbours = [];
@@ -57,6 +44,32 @@ public class Program
 
 		bool IsInArtccC(string artcc, ICoordinate point) => artccBoundaries[artcc].Any(b => IsInPolygon(b, point));
 
+#if OSM
+		Console.Write("Queueing OSM data download..."); await Console.Out.FlushAsync();
+		Osm? osm = null;
+
+		Task osmLoader = Task.Run(async () =>
+		{
+			for (int iterations = 0; iterations < 3; ++iterations)
+			{
+				try
+				{
+					osm = await Osm.Load();
+					break;
+				}
+				catch (TimeoutException) { /* Sometimes things choke. */ }
+				catch (TaskCanceledException) { /* Sometimes things choke. */ }
+
+				await Task.Delay(TimeSpan.FromSeconds(15)); // Give it a breather.
+			}
+
+			if (osm is null)
+				throw new Exception("Could not download OSM data.");
+		});
+
+		Console.WriteLine(" Done!");
+#endif
+
 		Console.Write("Downloading CIFPs..."); await Console.Out.FlushAsync();
 		CIFP? cifp = null;
 		for (int iterations = 0; iterations < 3; ++iterations)
@@ -75,26 +88,18 @@ public class Program
 
 		Console.WriteLine(" Done!");
 
-#if OSM
-		Console.Write("Downloading OSM data..."); await Console.Out.FlushAsync();
-		Osm? osm = null;
-
-		for (int iterations = 0; iterations < 3; ++iterations)
+		List<ManualAdjustment> manualAdjustments = [];
+		if (config.ManualAdjustmentsFolder is string maf && Directory.Exists(maf))
 		{
-			try
-			{
-				osm = await Osm.Load();
-				break;
-			}
-			catch (TimeoutException) { /* Sometimes things choke. */ }
-			catch (TaskCanceledException) { /* Sometimes things choke. */ }
+			Console.Write($"Located manual adjustments... "); await Console.Out.FlushAsync();
+			string[] files = [.. Directory.EnumerateFiles(maf, "*.maf", SearchOption.AllDirectories)];
+			Console.Write($"{files.Length} files detected... "); await Console.Out.FlushAsync();
+
+			foreach (string filepath in files)
+				manualAdjustments.AddRange(ManualAdjustment.Process(File.ReadAllText(filepath)));
+
+			Console.WriteLine($"Done! Loaded {manualAdjustments.Count} adjustments.");
 		}
-
-		if (osm is null)
-			throw new Exception("Could not download OSM data.");
-
-		Console.WriteLine(" Done!");
-#endif
 
 		foreach (var airport in cifp.Aerodromes.Values)
 			if (cifp.Fixes.TryGetValue(airport.Identifier, out var apFixes))
@@ -293,9 +298,31 @@ public class Program
 		WriteNavaids(includeFolder, cifp);
 		Console.WriteLine(" Done!");
 
+		Console.Write("Generating procedures..."); await Console.Out.FlushAsync();
+		var apProcFixes = await WriteProceduresAsync(cifp, addedProcedures, includeFolder);
+		Console.WriteLine($" Done!");
+
+		Console.Write("Generating video maps..."); await Console.Out.FlushAsync();
+		string videoMapsFolder = Path.Combine(includeFolder, "videomaps");
+		if (!Directory.Exists(videoMapsFolder))
+			Directory.CreateDirectory(videoMapsFolder);
+
+		WriteVideoMaps(videoMaps, videoMapsFolder);
+		Console.WriteLine($" Done!");
+
+		Console.Write("Generating MRVAs..."); await Console.Out.FlushAsync();
+		// Dummy loader to force all the downloading
+		_ = new Mrva([]);
+		Console.WriteLine($" Done!");
+		ConcurrentDictionary<string, bool> mrvaWrites = [];
+
 #if OSM
+		Console.Write("Awaiting OSM download..."); await Console.Out.FlushAsync();
+		await osmLoader;
+		Console.WriteLine(" Done!");
+
 		Console.Write("Partitioning airport data..."); await Console.Out.FlushAsync();
-		Osm apBoundaries = osm.GetFiltered(g =>
+		Osm apBoundaries = osm!.GetFiltered(g =>
 			g is Way or Relation &&
 			g["aeroway"] == "aerodrome" &&
 			g["icao"] is not null &&
@@ -398,24 +425,6 @@ public class Program
 
 		Console.WriteLine($" Done!");
 #endif
-
-		Console.Write("Generating procedures..."); await Console.Out.FlushAsync();
-		var apProcFixes = await WriteProceduresAsync(cifp, addedProcedures, includeFolder);
-		Console.WriteLine($" Done!");
-
-		Console.Write("Generating video maps..."); await Console.Out.FlushAsync();
-		string videoMapsFolder = Path.Combine(includeFolder, "videomaps");
-		if (!Directory.Exists(videoMapsFolder))
-			Directory.CreateDirectory(videoMapsFolder);
-
-		WriteVideoMaps(videoMaps, videoMapsFolder);
-		Console.WriteLine($" Done!");
-
-		Console.Write("Generating MRVAs..."); await Console.Out.FlushAsync();
-		// Dummy loader to force all the downloading
-		_ = new Mrva([]);
-		Console.WriteLine($" Done!");
-		ConcurrentDictionary<string, bool> mrvaWrites = [];
 
 		// Write ISCs
 		Parallel.ForEach(faaArtccs, async (artcc, _, _) =>
@@ -538,7 +547,7 @@ F;airways.high
 						if (p.Coordinate is NamedCoordinate nc)
 							return $"T;{aw.Identifier};{nc.Name};{nc.Name};";
 						else
-							return $"T;{aw.Identifier};{p.Coordinate!.Latitude.ToString("00.0####")};{p.Coordinate.Longitude.ToString("000.0####")};";
+							return $"T;{aw.Identifier};{p.Coordinate!.Latitude:00.0####};{p.Coordinate.Longitude:000.0####};";
 					})
 				])
 			]);
@@ -557,7 +566,7 @@ F;airways.high
 						if (p.Coordinate is NamedCoordinate nc)
 							return $"T;{aw.Identifier};{nc.Name};{nc.Name};";
 						else
-							return $"T;{aw.Identifier};{p.Coordinate!.Latitude.ToString("00.0####")};{p.Coordinate.Longitude.ToString("000.0####")};";
+							return $"T;{aw.Identifier};{p.Coordinate!.Latitude:00.0####};{p.Coordinate.Longitude:000.0####};";
 					})
 				])
 			]);
@@ -602,8 +611,10 @@ F;high.artcc
 
 					yield return $"L;{artcc};{points.Average(bp => bp.Latitude):00.0####};{points.Average(bp => bp.Longitude):000.0####};7;";
 
+#pragma warning disable IDE0042
 					foreach (var bp in points)
 						yield return $"T;{artcc}_{iter};{bp.Latitude:00.0####};{bp.Longitude:000.0####};";
+#pragma warning restore IDE0042
 				}
 			}
 

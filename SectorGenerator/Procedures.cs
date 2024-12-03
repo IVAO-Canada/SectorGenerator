@@ -335,15 +335,17 @@ internal class Procedures(CIFP cifp)
 			if (newCoords.Length == 0)
 				continue;
 
-			foreach ((ICoordinate epc, AltitudeRestriction ar) in newCoords)
+			foreach ((ICoordinate epc, AltitudeRestriction ar, SpeedRestriction sr) in newCoords)
 			{
 				if (epc is NamedCoordinate nc)
 				{
 					fixes.Add(nc);
-					addLine($"{nc.Name};{nc.Name};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
+					addLine($"{nc.Name};{nc.Name};{(ar == AltitudeRestriction.Unrestricted ? "" : $"ALT {ar}")}{(sr == SpeedRestriction.Unrestricted ? "" : $":SPD {sr}")};");
 				}
-				else if (epc is Coordinate c)
-					addLine($"{c.Latitude:00.0####};{c.Longitude:000.0####};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
+				else if (epc is Coordinate c && ar != AltitudeRestriction.Unrestricted)
+					addLine($"{c.Latitude:00.0####};{c.Longitude:000.0####};ALT {ar}{(sr == SpeedRestriction.Unrestricted ? "" : $":SPD {sr}")};");
+				else if (epc is Coordinate c2)
+					addLine($"{c2.Latitude:00.0####};{c2.Longitude:000.0####};{(sr == SpeedRestriction.Unrestricted ? "" : $"SPD {sr};")}");
 				else throw new NotImplementedException();
 
 				if (breakPending && lines.Count > 0)
@@ -366,7 +368,7 @@ internal class Procedures(CIFP cifp)
 		return ([.. lines], [.. fixes]);
 	}
 
-	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) Step(ICoordinate startingPoint, int airportElevation, decimal magVar, string airportIcao, Instruction instruction, Instruction? state = null)
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude, SpeedRestriction Speed)[] Points, Instruction? State) Step(ICoordinate startingPoint, int airportElevation, decimal magVar, string airportIcao, Instruction instruction, Instruction? state = null)
 	{
 		Distance? distance =
 			instruction.Termination.HasFlag(ProcedureLine.PathTermination.ForDistance)
@@ -388,14 +390,14 @@ internal class Procedures(CIFP cifp)
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilRadial) && instruction.Endpoint is Radial radial && instruction.Via is Course c)
 		{
 			if (radial.GetIntersectionPoint(startingPoint, c)?.GetCoordinate() is Coordinate coord)
-				return ([.. ProcessPreviousStep(startingPoint, instruction, state), (coord, AltitudeRestriction.Unrestricted)], instruction);
+				return ([.. ProcessPreviousStep(startingPoint, instruction, state), (coord, AltitudeRestriction.Unrestricted, SpeedRestriction.Unrestricted)], instruction);
 			else
 				return ([.. ProcessPreviousStep(startingPoint, instruction, state)], instruction);
 		}
 		else if (instruction.Endpoint is ICoordinate ep)
-			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (ep, instruction.Altitude)], null);
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (ep, instruction.Altitude, instruction.Speed)], null);
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilDistance) && instruction.Endpoint is Distance dist && dist.Point is not null && instruction.Via is Course crs)
-			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (dist.Point.GetCoordinate().FixRadialDistance(crs, dist.NMI), AltitudeRestriction.Unrestricted)], null);
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (dist.Point.GetCoordinate().FixRadialDistance(crs, dist.NMI), AltitudeRestriction.Unrestricted, SpeedRestriction.Unrestricted)], null);
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.UntilIntercept))
 			return ([.. ProcessPreviousStep(startingPoint, instruction, state)], instruction);
 		else
@@ -403,7 +405,7 @@ internal class Procedures(CIFP cifp)
 			return ([.. ProcessPreviousStep(startingPoint, instruction, state)], instruction);
 	}
 
-	private static IEnumerable<(ICoordinate, AltitudeRestriction)> ProcessPreviousStep(ICoordinate startingPoint, Instruction instruction, Instruction? state)
+	private static IEnumerable<(ICoordinate, AltitudeRestriction, SpeedRestriction)> ProcessPreviousStep(ICoordinate startingPoint, Instruction instruction, Instruction? state)
 	{
 		const double DEG_TO_RAD = Math.PI / 180;
 		if (state is null || state.Via is not Course viaCourse || instruction.ReferencePoint is null || instruction.Via is not Course interceptCourse)
@@ -414,10 +416,10 @@ internal class Procedures(CIFP cifp)
 		var (sinAngle, cosAngle) = Math.SinCos((double)interceptCourse.Radians);
 
 		double distToIntercept = Math.Abs(cosAngle * (refLat - lastLat) - sinAngle * (refLon - lastLon) * Math.Cos(DEG_TO_RAD * (double)startingPoint.Latitude));
-		yield return (startingPoint.GetCoordinate().FixRadialDistance(viaCourse, (decimal)distToIntercept), state.Altitude);
+		yield return (startingPoint.GetCoordinate().FixRadialDistance(viaCourse, (decimal)distToIntercept), state.Altitude, state.Speed);
 	}
 
-	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) StepRacetrack(ICoordinate startingPoint, decimal magVar, Instruction instruction, Instruction? state, Racetrack hold)
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude, SpeedRestriction Speed)[] Points, Instruction? State) StepRacetrack(ICoordinate startingPoint, decimal magVar, Instruction instruction, Instruction? state, Racetrack hold)
 	{
 		const decimal radius = 1; // NMI
 		if (hold.Point is null)
@@ -435,10 +437,10 @@ internal class Procedures(CIFP cifp)
 		for (decimal angle = 90m; angle <= 270m; angle += 15)
 			rtPoints.Add(focus2.FixRadialDistance(inboundCourse + angle, radius));
 
-		return ([.. ProcessPreviousStep(startingPoint, instruction, state), (hold.Point, instruction.Altitude), .. rtPoints.Select(p => (p, AltitudeRestriction.Unrestricted)), (hold.Point, AltitudeRestriction.Unrestricted)], null);
+		return ([.. ProcessPreviousStep(startingPoint, instruction, state), (hold.Point, instruction.Altitude, instruction.Speed), .. rtPoints.Select(p => (p, AltitudeRestriction.Unrestricted, SpeedRestriction.Unrestricted)), (hold.Point, AltitudeRestriction.Unrestricted, SpeedRestriction.Unrestricted)], null);
 	}
 
-	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) StepArc(ICoordinate startingPoint, Instruction instruction, Instruction? state, Arc arc, ICoordinate arcEnd)
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude, SpeedRestriction Speed)[] Points, Instruction? State) StepArc(ICoordinate startingPoint, Instruction instruction, Instruction? state, Arc arc, ICoordinate arcEnd)
 	{
 		if (arc.Centerpoint?.GetCoordinate() is not Coordinate arcCenter)
 			return ([], null);
@@ -468,10 +470,10 @@ internal class Procedures(CIFP cifp)
 		for (Course angle = startAngle; up ? (totalAngle -= 15) > -15 : (totalAngle += 15) < 15; angle += up ? 15m : -15m)
 			intermediatePoints.Add(arcCenter.FixRadialDistance(angle, arc.Radius));
 
-		return ([.. ProcessPreviousStep(startingPoint, instruction, state), .. intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted)), (arcEnd, instruction.Altitude)], null);
+		return ([.. ProcessPreviousStep(startingPoint, instruction, state), .. intermediatePoints.Select(p => (p, AltitudeRestriction.Unrestricted, SpeedRestriction.Unrestricted)), (arcEnd, instruction.Altitude, instruction.Speed)], null);
 	}
 
-	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) StepDistance(ICoordinate startingPoint, Instruction instruction, Instruction? state, Distance distance)
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude, SpeedRestriction Speed)[] Points, Instruction? State) StepDistance(ICoordinate startingPoint, Instruction instruction, Instruction? state, Distance distance)
 	{
 		if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.Heading) ||
 			 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Track) ||
@@ -480,33 +482,33 @@ internal class Procedures(CIFP cifp)
 			if (instruction.Via is not Course c)
 				throw new NotImplementedException();
 
-			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (startingPoint.GetCoordinate().FixRadialDistance(c, distance.NMI), instruction.Altitude)], null);
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (startingPoint.GetCoordinate().FixRadialDistance(c, distance.NMI), instruction.Altitude, instruction.Speed)], null);
 		}
 		else if (instruction.Termination.HasFlag(ProcedureLine.PathTermination.Direct))
 			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (startingPoint.GetCoordinate().FixRadialDistance(
 					startingPoint.GetCoordinate().GetBearingDistance(((ICoordinate)instruction.Endpoint!).GetCoordinate()).bearing ?? new(0),
 					distance.NMI
-				), instruction.Altitude)], null);
+				), instruction.Altitude, instruction.Speed)], null);
 		else
 			throw new NotImplementedException();
 	}
 
-	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) StepDirect(ICoordinate startingPoint, string airportIcao, Instruction instruction, Instruction? state)
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude, SpeedRestriction Speed)[] Points, Instruction? State) StepDirect(ICoordinate startingPoint, string airportIcao, Instruction instruction, Instruction? state)
 	{
 		if (instruction.Endpoint is NamedCoordinate nep && nep.Name.StartsWith("RW"))
-			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (nep with { Name = $"{airportIcao}/{nep.Name}" }, instruction.Altitude)], null);
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (nep with { Name = $"{airportIcao}/{nep.Name}" }, instruction.Altitude, instruction.Speed)], null);
 		if (instruction.Endpoint is ICoordinate dep)
-			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (dep, instruction.Altitude)], null);
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (dep, instruction.Altitude, instruction.Speed)], null);
 		else
 			throw new NotImplementedException();
 	}
 
-	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude)[] Points, Instruction? State) StepVectors(ICoordinate startingPoint, Instruction instruction, Instruction? state)
+	private static ((ICoordinate Endpoint, AltitudeRestriction Altitude, SpeedRestriction Speed)[] Points, Instruction? State) StepVectors(ICoordinate startingPoint, Instruction instruction, Instruction? state)
 	{
 		if ((instruction.Termination.HasFlag(ProcedureLine.PathTermination.Heading) ||
 			 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Track) ||
 			 instruction.Termination.HasFlag(ProcedureLine.PathTermination.Course)) && instruction.Via is Course hdg)
-			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (startingPoint.GetCoordinate().FixRadialDistance(hdg, 0.25m), instruction.Altitude)], null);
+			return ([.. ProcessPreviousStep(startingPoint, instruction, state), (startingPoint.GetCoordinate().FixRadialDistance(hdg, 0.25m), instruction.Altitude, instruction.Speed)], null);
 		else
 			throw new NotImplementedException();
 	}
@@ -540,14 +542,16 @@ internal class Procedures(CIFP cifp)
 			if (newCoords.Length == 0)
 				continue;
 
-			foreach ((ICoordinate epc, AltitudeRestriction ar) in newCoords)
+			foreach ((ICoordinate epc, AltitudeRestriction ar, SpeedRestriction sr) in newCoords)
 				if (epc is NamedCoordinate nc)
 				{
 					fixes.Add(nc);
-					addEdge($"{nc.Name};{nc.Name};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
+					addEdge($"{nc.Name};{nc.Name};{(ar == AltitudeRestriction.Unrestricted ? "" : $"ALT {ar}")}{(sr == SpeedRestriction.Unrestricted ? "" : $":SPD {sr}")};");
 				}
-				else if (epc is Coordinate c)
-					addEdge($"{c.Latitude:00.0####};{c.Longitude:000.0####};{(ar == AltitudeRestriction.Unrestricted ? "" : $"{ar};")}");
+				else if (epc is Coordinate c && ar != AltitudeRestriction.Unrestricted)
+					addEdge($"{c.Latitude:00.0####};{c.Longitude:000.0####};ALT {ar}{(sr == SpeedRestriction.Unrestricted ? "" : $":SPD {sr}")};");
+				else if (epc is Coordinate c2)
+					addEdge($"{c2.Latitude:00.0####};{c2.Longitude:000.0####};{(sr == SpeedRestriction.Unrestricted ? "" : $"SPD {sr};")}");
 				else throw new NotImplementedException();
 
 			startPoint = newCoords[^1].Endpoint.GetCoordinate();

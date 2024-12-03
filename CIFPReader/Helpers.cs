@@ -9,7 +9,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
-using static CIFPReader.AltitudeRestriction;
 using static CIFPReader.ProcedureLine;
 
 namespace CIFPReader;
@@ -93,6 +92,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		{
 			HttpClient cli = new();
 			string pageListing = cli.GetStringAsync(@"https://aeronav.faa.gov/Upload_313-d/cifp/").Result;
+#pragma warning disable IDE0079
 #pragma warning disable SYSLIB1045 // Convert to 'GeneratedRegexAttribute'.
 			Regex cifpZip = new(@"CIFP_\d+\.zip");
 #pragma warning restore SYSLIB1045 // Convert to 'GeneratedRegexAttribute'.
@@ -950,6 +950,7 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 			throw new ArgumentOutOfRangeException(nameof(alt2), "Single altitude restrictions should not be passed two altitudes.");
 
 		return description switch {
+			AltitudeDescription.Between when alt1.Feet > alt2?.Feet => new(alt2, alt1),
 			AltitudeDescription.Between => new(alt1, alt2),
 			AltitudeDescription.At => new(alt1, alt1),
 
@@ -975,30 +976,16 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 	{
 		string retval = "";
 		if (Minimum is not null)
-			retval += @$"^{Minimum.Feet / 100:000} ";
+			retval += @$"MIN {Minimum.Feet / 100:000} ";
 		if (Maximum is not null)
-			retval += $@"v{Maximum.Feet / 100:000}";
+			retval += $@"MAX {Maximum.Feet / 100:000}";
 
 		retval = retval.Trim();
 
 		if (Minimum is not null && Minimum == Maximum)
-			retval = $@"@{Minimum.Feet / 100:000}";
+			retval = $@"AT {Minimum.Feet / 100:000}";
 
 		return string.IsNullOrWhiteSpace(retval) ? "Unrestricted" : retval;
-	}
-
-	public static AltitudeRestriction Parse(string data)
-	{
-		if (data == "Unrestricted")
-			return Unrestricted;
-
-		int? min = null, max = null;
-		if (data.StartsWith('\\'))
-			min = int.Parse(data.Split()[0][1..]) * 100;
-		if (data.EndsWith('\\'))
-			max = int.Parse(data.Split().Last()[..^1]) * 100;
-
-		return new(min is null ? null : new AltitudeMSL(min.Value), max is null ? null : new AltitudeMSL(max.Value));
 	}
 
 	public class AltitudeRestrictionJsonConverter : JsonConverter<AltitudeRestriction>
@@ -1060,26 +1047,15 @@ public record SpeedRestriction(uint? Minimum, uint? Maximum)
 	{
 		string retval = "";
 		if (Minimum is not null)
-			retval += @$"\{Minimum}K ";
+			retval += $"MIN {Minimum}K ";
 		if (Maximum is not null)
-			retval += $@"{Maximum}K\";
+			retval += $"MAX {Maximum}K";
 		retval = retval.Trim();
 
+		if (Minimum is not null && Minimum == Maximum)
+			retval = $"AT {Minimum}K";
+
 		return string.IsNullOrWhiteSpace(retval) ? "Unrestricted" : retval;
-	}
-
-	public static SpeedRestriction Parse(string data)
-	{
-		if (data == "Unrestricted")
-			return Unrestricted;
-
-		uint? min = null, max = null;
-		if (data.StartsWith('\\'))
-			min = uint.Parse(data.Split()[0][1..^1]);
-		if (data.EndsWith('\\'))
-			max = uint.Parse(data.Split().Last()[..^2]);
-
-		return new(min, max);
 	}
 
 	public class SpeedRestrictionJsonConverter : JsonConverter<SpeedRestriction>
