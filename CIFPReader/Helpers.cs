@@ -44,7 +44,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		TblControlledAirspace[] controlledAirspaces = [.. airac.TblControlledAirspaces.ToArray().Where(ca => ca.IcaoCode is null || ca.IcaoCode.StartsWith(prefix))];
 		TblAirport[] airports = [.. airac.TblAirports.Where(ap => ap.IcaoCode.StartsWith(prefix))];
 		TblRunway[] runways = [.. airac.TblRunways.Where(rw => rw.AirportIdentifier.StartsWith(prefix))];
-		TblVhfnavaid[] navaids = [.. airac.TblVhfnavaids];
+		TblVhfnavaid[] navaids = [.. airac.TblVhfnavaids.Where(n => (n.VorLatitude ?? n.DmeLatitude ?? 0m) > 40 && (n.VorLongitude ?? n.DmeLongitude) < -5)];
 		TblFirUir[] firBoundaries = [.. airac.TblFirUirs];
 		TblSid[] sids = [.. airac.TblSids.Where(s => s.AirportIdentifier.StartsWith(prefix))];
 		TblStar[] stars = [.. airac.TblStars.Where(s => s.AirportIdentifier.StartsWith(prefix))];
@@ -571,7 +571,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		}));
 
 		Procedures = procs.ToDictionary();
-		(MORAs, Airspaces) = (moras.ToArray(), airspaces.ToArray());
+		(MORAs, Airspaces) = ([.. moras], [.. airspaces]);
 	}
 }
 
@@ -1171,10 +1171,14 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 			else if (reader.TokenType != JsonTokenType.StartArray || !reader.Read())
 				throw new JsonException();
 
-			Altitude? minimum = (reader.TokenType == JsonTokenType.Null && reader.Read()) ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
-			Altitude? maximum = (reader.TokenType == JsonTokenType.Null && reader.Read()) ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
+			Altitude? minimum = reader.TokenType == JsonTokenType.Null ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
 
-			if (reader.TokenType != JsonTokenType.EndArray || !reader.Read())
+			if (!reader.Read())
+				throw new JsonException();
+
+			Altitude? maximum = reader.TokenType == JsonTokenType.Null ? null : JsonSerializer.Deserialize<Altitude>(ref reader, options);
+
+			if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray)
 				throw new JsonException();
 
 			return new(minimum, maximum);
@@ -1238,9 +1242,13 @@ public record SpeedRestriction(uint? Minimum, uint? Maximum)
 				throw new JsonException();
 
 			uint? minimum = reader.TokenType == JsonTokenType.Null ? null : reader.TokenType == JsonTokenType.Number ? reader.GetUInt32() : throw new JsonException();
+			
+			if (!reader.Read())
+				throw new JsonException();
+
 			uint? maximum = reader.TokenType == JsonTokenType.Null ? null : reader.TokenType == JsonTokenType.Number ? reader.GetUInt32() : throw new JsonException();
 
-			if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray || !reader.Read())
+			if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray)
 				throw new JsonException();
 
 			return new(minimum, maximum);

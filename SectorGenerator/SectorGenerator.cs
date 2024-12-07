@@ -23,6 +23,32 @@ public class Program
 		(string apiToken, string apiRefreshToken) = await GetApiKeysAsync(config);
 		Console.WriteLine($" Done! (Refresh: {apiRefreshToken})");
 
+#if OSM
+		Console.Write("Queueing OSM data download..."); await Console.Out.FlushAsync();
+		Osm? osm = null;
+
+		Task osmLoader = Task.Run(async () =>
+		{
+			for (int iterations = 0; iterations < 3; ++iterations)
+			{
+				try
+				{
+					osm = await Osm.Load();
+					break;
+				}
+				catch (TimeoutException) { /* Sometimes things choke. */ }
+				catch (TaskCanceledException) { /* Sometimes things choke. */ }
+
+				await Task.Delay(TimeSpan.FromSeconds(15)); // Give it a breather.
+			}
+
+			if (osm is null)
+				throw new Exception("Could not download OSM data.");
+		});
+
+		Console.WriteLine(" Done!");
+#endif
+
 		List<ManualAdjustment> manualAdjustments = [];
 		if (config.ManualAdjustmentsFolder is string maf && Directory.Exists(maf))
 		{
@@ -44,12 +70,6 @@ public class Program
 		string[] targetFirs = [.. firBoundaries.Keys.Where(k => k[0] == 'C')];
 		bool IsInFir(string fir, ICoordinate point) => firBoundaries[fir].Any(b => IsInPolygon(b.Points, point));
 		Console.WriteLine(" Done!");
-
-#if OSM
-		Console.Write("Downloading OSM data..."); await Console.Out.FlushAsync();
-		Osm osm = await Osm.Load();
-		Console.WriteLine(" Done!");
-#endif
 
 		foreach (var airport in cifp.Aerodromes.Values)
 			if (cifp.Fixes.TryGetValue(airport.Identifier, out var apFixes))
@@ -111,6 +131,30 @@ public class Program
 
 					return resolvedCoord;
 				})]);
+
+			// Airways (in-place)
+			HashSet<PossiblyResolvedWaypoint> failedResolutions = [];
+			foreach (AddAirway aw in manualAdjustments.Where(a => a is AddAirway).Cast<AddAirway>())
+				for (int idx = 0; idx < aw.Points.Length; ++idx)
+				{
+					try
+					{
+						aw.Points[idx] = new(aw.Points[idx].Resolve(cifp), null, null);
+					}
+					catch
+					{
+						failedResolutions.Add(aw.Points[idx]);
+					}
+				}
+
+			if (failedResolutions.Count > 0)
+			{
+				Console.Error.WriteLine("Waypoint resolution failed! Please define the following waypoints manually:");
+				foreach (PossiblyResolvedWaypoint wp in failedResolutions)
+					Console.Error.WriteLine(wp.FixName?.Name ?? wp.ToString());
+
+				Environment.Exit(-1);
+			}
 
 			// Videomaps
 			foreach (AddGeo geo in manualAdjustments.Where(a => a is AddGeo).Cast<AddGeo>())
@@ -175,9 +219,10 @@ public class Program
 
 		Console.Write("Getting ATC positions..."); await Console.Out.FlushAsync();
 		var atcPositions = await GetAtcPositionsAsync(apiToken, "C");
+		var airportFirLookup = centerAirports.SelectMany(ca => ca.Value.Select(v => new KeyValuePair<string, string>(v.Identifier, ca.Key)).Append(new(ca.Key, ca.Key))).DistinctBy(kvp => kvp.Key).ToDictionary();
 		Dictionary<string, JsonObject[]> positionFirs =
 			atcPositions
-			.GroupBy(p => p["composePosition"]!.GetValue<string>().Split("_")[0])
+			.GroupBy(p => airportFirLookup.TryGetValue(p["composePosition"]!.GetValue<string>().Split("_")[0], out var fir) ? fir : "ZZZZ")
 			.ToDictionary(g => g.Key, g => g.ToArray());
 
 		Console.WriteLine(" Done!");
@@ -203,9 +248,25 @@ public class Program
 		WriteNavaids(includeFolder, cifp);
 		Console.WriteLine(" Done!");
 
+		Console.Write("Generating procedures..."); await Console.Out.FlushAsync();
+		var apProcFixes = await WriteProceduresAsync(cifp, addedProcedures, includeFolder);
+		Console.WriteLine($" Done!");
+
+		Console.Write("Generating video maps..."); await Console.Out.FlushAsync();
+		string videoMapsFolder = Path.Combine(includeFolder, "videomaps");
+		if (!Directory.Exists(videoMapsFolder))
+			Directory.CreateDirectory(videoMapsFolder);
+
+		WriteVideoMaps(videoMaps, videoMapsFolder);
+		Console.WriteLine($" Done!");
+
 #if OSM
+		Console.Write("Awaiting OSM download..."); await Console.Out.FlushAsync();
+		await osmLoader;
+		Console.WriteLine(" Done!");
+
 		Console.Write("Partitioning airport data..."); await Console.Out.FlushAsync();
-		Osm apBoundaries = osm.GetFiltered(g =>
+		Osm apBoundaries = osm!.GetFiltered(g =>
 			g is Way or Relation &&
 			g["aeroway"] == "aerodrome" &&
 			g["icao"] is not null &&
@@ -306,18 +367,26 @@ public class Program
 		Console.WriteLine($" Done!");
 #endif
 
-		Console.Write("Generating procedures..."); await Console.Out.FlushAsync();
-		var apProcFixes = await WriteProceduresAsync(cifp, addedProcedures, includeFolder);
-		Console.WriteLine($" Done!");
-
-		Console.Write("Generating video maps..."); await Console.Out.FlushAsync();
-		string videoMapsFolder = Path.Combine(includeFolder, "videomaps");
-		if (!Directory.Exists(videoMapsFolder))
-			Directory.CreateDirectory(videoMapsFolder);
-
-		WriteVideoMaps(videoMaps, videoMapsFolder);
-		Console.WriteLine($" Done!");
-
+		File.WriteAllText
+			(Path.Combine(polygonFolder, "online.ply"),
+			string.Join(
+				"\r\n\r\n",
+				atcPositions
+					.Where(p => p["regionMap"] is JsonArray region && region.Count > 0)
+					.Select(p => WebeyeAirspaceDrawing.ToPolyfillPath(p["composePosition"]!.GetValue<string>(), p["position"]?.GetValue<string>() ?? "TWR", p["regionMap"]!.AsArray()))
+					.Concat(firBoundaries.Where(fir => fir.Value.Count > 0).Select(fir => WebeyeAirspaceDrawing.ToPolyfillPath($"{fir.Key}_CTR", "CTR", fir.Value.SelectMany(kvp => kvp.Points).ToArray())))
+			)
+#if OSM
++ "\r\n\r\n" + string.Join("\r\n\r\n",
+		centerAirports
+			.Values
+			.SelectMany(adg => adg.Select(ad => apBoundaryWays.TryGetValue(ad.Identifier, out var retval) ? (ad.Identifier, retval) : ((string, Way)?)null))
+			.Where(ap => ap is not null)
+			.Cast<(string Icao, Way Boundary)>()
+			.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Icao + "_TWR", "TWR", ap.Boundary))
+	)
+#endif
+);
 
 		// Write ISCs
 		foreach (string fir in targetFirs)
@@ -358,11 +427,11 @@ CA/{fir};CA/labels;CA/geos;CA/polygons;CA/procedures;CA/navaids;CA/mvas;CA/video
 
 			// Colours
 			string defineBlock = $@"[DEFINE]
-TAXIWAY;#FF999A99;
-APRON;#FFB9BBBB;
+TAXIWAY;#FF353B42;
+APRON;#FF26292E;
 OUTLINE;#FF000000;
-BUILDING;#FF773333;
-RUNWAY;#FF555555;
+BUILDING;#FF5C3630;
+RUNWAY;#FF1A1A1A;
 STOPBAR;#FFB30000;
 {string.Join("\r\n", applicableVideoMaps.Select(g => $"{g};{videoMaps[g].Colour};"))}
 ";
@@ -372,8 +441,9 @@ STOPBAR;#FFB30000;
 			if (positionFirs.TryGetValue(fir, out var firPositions))
 			{
 				string allPositions = string.Join(' ', firPositions.Select(p => p["composePosition"]!.GetValue<string>()));
-				File.WriteAllLines(Path.Combine(firFolder, "atc.atc"), [..
-					firPositions.Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};{allPositions};")
+				File.WriteAllLines(Path.Combine(firFolder, "atc.atc"), [
+					..firPositions.Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};{allPositions};"),
+					..atcPositions.Where(p => p["centerId"]?.GetValue<string>() == fir).Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};{allPositions};")
 				]);
 			}
 
@@ -405,8 +475,18 @@ STOPBAR;#FFB30000;
 		));
 
 			// Airways
-			Airway[] inScopeLowAirways = [.. cifp.Airways.Where(kvp => kvp.Key[0] is 'V' or 'T').SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInFir(fir, p.Point))))];
-			Airway[] inScopeHighAirways = [.. cifp.Airways.Where(kvp => kvp.Key[0] is 'Q' or 'J').SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInFir(fir, p.Point))))];
+			Airway[] inScopeLowAirways = [..
+				cifp.Airways.Where(kvp => kvp.Key[0] is 'V' or 'T')
+				.Where(kvp => !manualAdjustments.Any(a => a is RemoveAirway raw && raw.Identifier.Equals(kvp.Key, StringComparison.InvariantCultureIgnoreCase)))
+				.SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInFir(fir, p.Point))))
+			];
+
+			Airway[] inScopeHighAirways = [..
+				cifp.Airways.Where(kvp => kvp.Key[0] is 'Q' or 'J')
+					.Where(kvp => !manualAdjustments.Any(a => a is RemoveAirway raw && raw.Identifier.Equals(kvp.Key, StringComparison.InvariantCultureIgnoreCase)))
+				.SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInFir(fir, p.Point))))
+			];
+
 			string airwaysBlock = $@"[LOW AIRWAY]
 F;airways.low
 
@@ -414,15 +494,43 @@ F;airways.low
 F;airways.high
 ";
 
-			File.WriteAllLines(Path.Combine(firFolder, "airways.low"), inScopeLowAirways.SelectMany(v => (string[])[
-				$"L;{v.Identifier};{v.Skip(v.Count() / 2).First().Point.Latitude:00.0####};{v.Skip(v.Count() / 2).First().Point.Longitude:000.0####};",
-		..v.Select(p => $"T;{v.Identifier};{p.Name ?? p.Point.Latitude.ToString("00.0####")};{p.Name ?? p.Point.Longitude.ToString("000.0####")};")
-			]));
+			File.WriteAllLines(Path.Combine(firFolder, "airways.low"), [
+				// AIRAC
+				..inScopeLowAirways.SelectMany(v => (string[])[
+					$"L;{v.Identifier};{v.Skip(v.Count() / 2).First().Point.Latitude:00.0####};{v.Skip(v.Count() / 2).First().Point.Longitude:000.0####};",
+					..v.Select(p => $"T;{v.Identifier};{p.Name ?? p.Point.Latitude.ToString("00.0####")};{p.Name ?? p.Point.Longitude.ToString("000.0####")};")
+				]),
+				
+				// Manual additions
+				..manualAdjustments.Where(a => a is AddAirway aw && aw.Type == AddAirway.AirwayType.Low && aw.Points.Any(p => IsInFir(fir, p.Coordinate ?? new Coordinate()))).Cast<AddAirway>().SelectMany(aw => (string[])[
+					$"L;{aw.Identifier};{aw.Points.Skip(aw.Points.Length / 2).First().Coordinate!.Latitude:00.0####};{aw.Points.Skip(aw.Points.Length / 2).First().Coordinate!.Longitude:000.0####};",
+					..aw.Points.Select(p => {
+						if (p.Coordinate is NamedCoordinate nc)
+							return $"T;{aw.Identifier};{nc.Name};{nc.Name};";
+						else
+							return $"T;{aw.Identifier};{p.Coordinate!.Latitude:00.0####};{p.Coordinate.Longitude:000.0####};";
+					})
+				])
+			]);
 
-			File.WriteAllLines(Path.Combine(firFolder, "airways.high"), inScopeHighAirways.SelectMany(v => (string[])[
-				$"L;{v.Identifier};{v.Skip(v.Count() / 2).First().Point.Latitude:00.0####};{v.Skip(v.Count() / 2).First().Point.Longitude:000.0####};",
-		..v.Select(p => $"T;{v.Identifier};{p.Name ?? p.Point.Latitude.ToString("00.0####")};{p.Name ?? p.Point.Longitude.ToString("000.0####")};")
-			]));
+			File.WriteAllLines(Path.Combine(firFolder, "airways.high"), [
+				// AIRAC
+				..inScopeHighAirways.SelectMany(v => (string[])[
+					$"L;{v.Identifier};{v.Skip(v.Count() / 2).First().Point.Latitude:00.0####};{v.Skip(v.Count() / 2).First().Point.Longitude:000.0####};",
+					..v.Select(p => $"T;{v.Identifier};{p.Name ?? p.Point.Latitude.ToString("00.0####")};{p.Name ?? p.Point.Longitude.ToString("000.0####")};")
+				]),
+
+				// Manual additions
+				..manualAdjustments.Where(a => a is AddAirway aw && aw.Type == AddAirway.AirwayType.High && aw.Points.Any(p => IsInFir(fir, p.Coordinate ?? new Coordinate()))).Cast<AddAirway>().SelectMany(aw => (string[])[
+					$"L;{aw.Identifier};{aw.Points.Skip(aw.Points.Length / 2).First().Coordinate!.Latitude:00.0####};{aw.Points.Skip(aw.Points.Length / 2).First().Coordinate!.Longitude:000.0####}",
+					..aw.Points.Select(p => {
+						if (p.Coordinate is NamedCoordinate nc)
+							return $"T;{aw.Identifier};{nc.Name};{nc.Name};";
+						else
+							return $"T;{aw.Identifier};{p.Coordinate!.Latitude:00.0####};{p.Coordinate.Longitude:000.0####};";
+					})
+				])
+			]);
 
 			// Fixes
 			string fixesBlock = "[FIXES]\r\nF;fixes.fix\r\n";
@@ -434,6 +542,7 @@ F;airways.high
 		fixes
 			.Concat(inScopeLowAirways.SelectMany(aw => aw.Where(p => p.Name is string n && !fixes.Any(f => f.Key == n))).Select(p => (Key: p.Name!, Point: p.Point.GetCoordinate())))
 			.Concat(inScopeHighAirways.SelectMany(aw => aw.Where(p => p.Name is string n && !fixes.Any(f => f.Key == n))).Select(p => (Key: p.Name!, Point: p.Point.GetCoordinate())))
+			.Concat(manualAdjustments.Where(a => a is AddAirway).Cast<AddAirway>().SelectMany(aw => aw.Points.Where(wp => wp.Coordinate is NamedCoordinate p && p.Name is string n && !fixes.Any(f => f.Key == n))).Select(p => { var nc = (NamedCoordinate)p.Coordinate!; return (Key: nc.Name!, Point: nc.Position); }))
 			.Concat(centerAirports[fir].SelectMany(icao => apProcFixes.TryGetValue(icao.Identifier, out var fixes) ? fixes : []).Select(p => (Key: p.Name!, Point: p.GetCoordinate())))
 			.Select(f => $"{f.Key};{f.Point.Latitude:00.0####};{f.Point.Longitude:000.0####};")
 			]);
@@ -527,33 +636,6 @@ F;coast.geo
 			string polyfillBlock = $@"[FILLCOLOR]
 F;online.ply
 ";
-			File.WriteAllText(Path.Combine(firFolder, "online.ply"), $@"{WebeyeAirspaceDrawing.ToPolyfillPath($"{fir}_CTR", "CTR", [..firBoundaries[fir].SelectMany(p => p.Points)])}
-
-{string.Join("\r\n\r\n",
-			targetFirs.Prepend(fir).Distinct().SelectMany(fir => positionFirs[fir]
-				.Where(p => p["composePosition"] is not null && p["position"]?.GetValue<string>() is "APP" or "DEP" or "CTR" or "FSS" && p["regionMap"] is JsonArray map && map.Count > 1)
-				.Select(p => WebeyeAirspaceDrawing.ToPolyfillPath(p["composePosition"]!.GetValue<string>(), p["position"]!.GetValue<string>(), p["regionMap"]!.AsArray()))
-				.Prepend($"// {fir}")
-		))}
-"
-#if OSM
- + string.Join("\r\n\r\n",
-			centerAirports[fir]
-				.Select(ad => apBoundaryWays.TryGetValue(ad.Identifier, out var retval) ? (ad.Identifier, retval) : ((string, Way)?)null)
-				.Where(ap => ap is not null)
-				.Cast<(string Icao, Way Boundary)>()
-				.Select(ap => (
-					Pos: string.Join(' ',
-						positionFirs[fir]
-							.Where(p => p["airportId"]?.GetValue<string>() == ap.Icao && p["position"]?.GetValue<string>() == "TWR")
-							.Select(p => p["composePosition"]!.GetValue<string>())
-					),
-					Bounds: ap.Boundary
-				))
-				.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Pos, "TWR", ap.Bounds))
-		)
-#endif
-);
 
 			File.WriteAllText(Path.Combine(config.OutputFolder, $"{fir}.isc"), $@"{infoBlock}
 {defineBlock}

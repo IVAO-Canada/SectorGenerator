@@ -361,17 +361,17 @@ internal abstract partial record ManualAdjustment
 				case "VFRROUTE":
 					if (filecontents[0] != ':')
 					{
-						Console.WriteLine("ERROR! Expected : in fix definition after VFRROUTE.");
+						Console.WriteLine("ERROR! Expected : in definition after VFRROUTE.");
 						AbsorbBlock(indent);
 						continue;
 					}
 					filecontents = filecontents[1..].TrimStart([' ', '\t']);
 
-					bool blockFormat = NewlinePending();
-					int blockIndent = blockFormat ? GetIndentLevel() : 0;
-					if (blockFormat && blockIndent <= indent)
+					bool vfrRouteBlockFormat = NewlinePending();
+					int vfrRouteBlockIndent = vfrRouteBlockFormat ? GetIndentLevel() : 0;
+					if (vfrRouteBlockFormat && vfrRouteBlockIndent <= indent)
 					{
-						indent = blockIndent;
+						indent = vfrRouteBlockIndent;
 						Console.WriteLine("ERROR! Expected definition for VFRROUTE.");
 						AbsorbBlock(indent);
 						continue;
@@ -379,11 +379,11 @@ internal abstract partial record ManualAdjustment
 
 					List<PossiblyResolvedWaypoint> vfrRouteWaypoints = [];
 
-					if (blockFormat)
-						filecontents = new string(' ', blockIndent) + filecontents; // Reset for the next indent check.
+					if (vfrRouteBlockFormat)
+						filecontents = new string(' ', vfrRouteBlockIndent) + filecontents; // Reset for the next indent check.
 
-					int runningIndent = blockIndent;
-					while (filecontents.Any(c => !char.IsWhiteSpace(c)) && ((blockFormat && (runningIndent = GetIndentLevel()) >= blockIndent) || (!blockFormat && !NewlinePending())))
+					int vfrRouteRunningIndent = vfrRouteBlockIndent;
+					while (filecontents.Any(c => !char.IsWhiteSpace(c)) && ((vfrRouteBlockFormat && (vfrRouteRunningIndent = GetIndentLevel()) >= vfrRouteBlockIndent) || (!vfrRouteBlockFormat && !NewlinePending())))
 					{
 						if (ReadWaypoint("VFRROUTE") is not PossiblyResolvedWaypoint prw)
 							// Skip it.
@@ -393,6 +393,58 @@ internal abstract partial record ManualAdjustment
 					}
 
 					yield return new AddVfrRoute([.. vfrRouteWaypoints]);
+					break;
+
+				case "AIRWAY":
+					Match awMatch = AirwayHeaderRegex().Match(filecontents);
+					if (!awMatch.Success)
+					{
+						Console.WriteLine($"ERROR! Invalid AIRWAY header {filecontents[..filecontents.IndexOf('\n')]}");
+						AbsorbBlock(indent);
+						continue;
+					}
+
+					string awTypeStr = awMatch.Groups["type"].Value[..2].ToUpperInvariant(), awId = awMatch.Groups["name"].Value;
+					AddAirway.AirwayType awType = awTypeStr switch {
+						"HI" => AddAirway.AirwayType.High,
+						"LO" => AddAirway.AirwayType.Low,
+						_ => throw new NotImplementedException()
+					};
+
+					filecontents = filecontents[awMatch.Length..].TrimStart([' ', '\t']);
+
+					if (!NewlinePending() && filecontents[..filecontents.IndexOf('\n')].Trim().Equals("delete", StringComparison.InvariantCultureIgnoreCase))
+					{
+						yield return new RemoveAirway(awType, awId);
+						continue;
+					}
+
+					bool awBlockFormat = NewlinePending();
+					int awBlockIndent = awBlockFormat ? GetIndentLevel() : 0;
+					if (awBlockFormat && awBlockIndent <= indent)
+					{
+						indent = awBlockIndent;
+						Console.WriteLine($"ERROR! Expected definition for {awTypeStr} AIRWAY {awId}.");
+						AbsorbBlock(indent);
+						continue;
+					}
+
+					List<PossiblyResolvedWaypoint> awWaypoints = [];
+
+					if (awBlockFormat)
+						filecontents = new string(' ', awBlockIndent) + filecontents; // Reset for the next indent check.
+
+					int awRunningIndent = awBlockIndent;
+					while (filecontents.Any(c => !char.IsWhiteSpace(c)) && ((awBlockFormat && (awRunningIndent = GetIndentLevel()) >= awBlockIndent) || (!awBlockFormat && !NewlinePending())))
+					{
+						if (ReadWaypoint($"{awTypeStr} AIRWAY {awId}") is not PossiblyResolvedWaypoint prw)
+							// Skip it.
+							continue;
+
+						awWaypoints.Add(prw);
+					}
+
+					yield return new AddAirway([.. awWaypoints], awType, awId);
 					break;
 
 				case "GEO":
@@ -533,6 +585,9 @@ internal abstract partial record ManualAdjustment
 
 	[GeneratedRegex(@"\A(?<ap>\w+)[^\S\n]+(?<type>SID|STAR|IAP)[^\S\n]+(?<name>[^\s:]+)[^\S\n]*:", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
 	public static partial Regex ProcHeaderRegex();
+
+	[GeneratedRegex(@"\A(?<type>HI(GH)?|LOW?)[^\S\n]+(?<name>[^\s:]+)[^\S\n]*:", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture)]
+	public static partial Regex AirwayHeaderRegex();
 }
 
 internal abstract record ManualAddition : ManualAdjustment;
@@ -544,6 +599,17 @@ internal sealed record AddVfrFix(string Name, PossiblyResolvedWaypoint Position)
 internal sealed record RemoveFix(PossiblyResolvedWaypoint Fix) : ManualDeletion;
 
 internal sealed record AddVfrRoute(PossiblyResolvedWaypoint[] Points) : ManualAddition;
+
+internal sealed record AddAirway(PossiblyResolvedWaypoint[] Points, AddAirway.AirwayType Type, string Identifier) : ManualAddition
+{
+	public enum AirwayType
+	{
+		High,
+		Low
+	}
+}
+
+internal sealed record RemoveAirway(AddAirway.AirwayType Type, string Identifier) : ManualDeletion;
 
 internal sealed record AddGeo(string Tag, string Colour, IDrawableGeo[] Geos) : ManualAddition;
 

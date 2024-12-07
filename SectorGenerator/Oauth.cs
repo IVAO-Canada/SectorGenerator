@@ -22,7 +22,7 @@ internal class Oauth : IDisposable
 		HttpListenerContext context;
 
 		var proc = Process.Start(new ProcessStartInfo() {
-			FileName = "https://sso.ivao.aero/authorize?response_type=code&client_id=d569e5a6-367c-4014-9892-8239f339bacc&redirect_uri=http%3A%2F%2Flocalhost%3A22125%2F&scope=openid",
+			FileName = "https://sso.ivao.aero/authorize?response_type=code&client_id=ace90ef6-bdee-490d-bbff-f8db2bb27011&redirect_uri=http%3A%2F%2Flocalhost%3A22125%2F&scope=openid",
 			UseShellExecute = true
 		});
 
@@ -45,8 +45,8 @@ internal class Oauth : IDisposable
 			grant_type = "authorization_code",
 			code,
 			redirect_uri = "http://localhost:22125/",
-			client_id = "d569e5a6-367c-4014-9892-8239f339bacc",
-			client_secret = "qGDStCwskPyxfMjUyf9kFTbV8bgp5EQW"
+			client_id = "ace90ef6-bdee-490d-bbff-f8db2bb27011",
+			client_secret = "p9vv1lTwtVufbryqFNqPkkz4JOJ06hSX"
 		}));
 		if (JsonNode.Parse(await resp.Content.ReadAsStringAsync()) is JsonObject retval)
 			return retval;
@@ -59,7 +59,7 @@ internal class Oauth : IDisposable
 		var resp = await _http.PostAsync("https://api.ivao.aero/v2/oauth/token", JsonContent.Create(new
 		{
 			grant_type = "refresh_token",
-			client_id = "d569e5a6-367c-4014-9892-8239f339bacc",
+			client_id = "ace90ef6-bdee-490d-bbff-f8db2bb27011",
 			refresh_token = refreshToken
 		}));
 		if (JsonNode.Parse(await resp.Content.ReadAsStringAsync()) is JsonObject retval)
