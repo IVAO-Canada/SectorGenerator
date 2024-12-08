@@ -524,7 +524,7 @@ internal abstract partial record ManualAdjustment
 						_ => throw new NotImplementedException()
 					};
 
-					filecontents = filecontents[m.Length..].TrimStart([' ', '\t']);
+					filecontents = filecontents[m.Length..].TrimStart([ ' ', '\t' ]);
 
 					if (!NewlinePending() && filecontents[..filecontents.IndexOf('\n')].Trim().Equals("delete", StringComparison.InvariantCultureIgnoreCase))
 					{
@@ -659,7 +659,11 @@ internal abstract record GeoSymbol(PossiblyResolvedWaypoint Centerpoint, decimal
 			_magVar = cifp.Navaids.GetLocalMagneticVariation(_resolvedCenterpoint.GetCoordinate()).Variation;
 			return true;
 		}
-		catch { return false; }
+		catch
+		{
+			Console.WriteLine($"Could not find {Centerpoint.FixName}");
+			return false;
+		}
 	}
 
 	public abstract IEnumerable<ICoordinate?> Draw();
