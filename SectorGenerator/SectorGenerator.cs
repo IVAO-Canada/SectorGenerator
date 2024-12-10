@@ -115,7 +115,7 @@ public class Program
 
 		Dictionary<string, HashSet<AddProcedure>> addedProcedures = [];
 		HashSet<NamedCoordinate> vfrFixes = [];
-		HashSet<ICoordinate[]> vfrRoutes = [];
+		HashSet<(string Filter, ICoordinate[] Points)> vfrRoutes = [];
 		Dictionary<string, (string Colour, HashSet<IDrawableGeo> Drawables)> videoMaps = [];
 		if (manualAdjustments.Count > 0)
 		{
@@ -143,7 +143,7 @@ public class Program
 
 			// VFR routes
 			foreach (AddVfrRoute vr in manualAdjustments.Where(a => a is AddVfrRoute).Cast<AddVfrRoute>())
-				vfrRoutes.Add([.. vr.Points.Select(p => {
+				vfrRoutes.Add((vr.Filter, [.. vr.Points.Select(p => {
 					ICoordinate resolvedCoord = p.Resolve(cifp);
 
 					if (resolvedCoord is NamedCoordinate nc)
@@ -160,7 +160,7 @@ public class Program
 					}
 
 					return resolvedCoord;
-				})]);
+				})]));
 
 			// Airways (in-place)
 			HashSet<PossiblyResolvedWaypoint> failedResolutions = [];
@@ -643,22 +643,22 @@ F;high.artcc
 			]);
 
 			// VFR Routes
-			vfrBlock += "[VFRROUTE]\r\nF;vfr.vrt\r\n\r\n";
+			vfrBlock += "[VFRRTEENR]\r\nF;vfr.vrt\r\n\r\n";
 
-			ICoordinate[][] applicableRoutes = [..
-				vfrRoutes.Where(r => r.Any(c => IsInArtccC(artcc, c)))
+			(string Filter, ICoordinate[] Points)[] applicableRoutes = [..
+				vfrRoutes.Where(r => r.Points.Any(c => IsInArtccC(artcc, c)))
 			];
 
 			File.WriteAllLines(
 				Path.Combine(artccFolder, "vfr.vrt"),
 				Enumerable.Range(0, applicableRoutes.Length).Select(routeIdx =>
-					string.Join("\r\n", applicableRoutes[routeIdx].Select(r =>
+					string.Join("\r\n", applicableRoutes[routeIdx].Points.Select(r =>
 					{
 						if (r is NamedCoordinate nc)
-							return $"{routeIdx + 1};{nc.Name};{nc.Name};";
+							return $"{applicableRoutes[routeIdx].Filter};{routeIdx + 1};{nc.Name};{nc.Name};";
 
 						Coordinate c = r.GetCoordinate();
-						return $"{routeIdx + 1};{c.Latitude:00.0####};{c.Longitude:000.0####};";
+						return $"{applicableRoutes[routeIdx].Filter};{routeIdx + 1};{c.Latitude:00.0####};{c.Longitude:000.0####};";
 					})))
 			);
 

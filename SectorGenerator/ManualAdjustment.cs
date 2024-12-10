@@ -359,12 +359,21 @@ internal abstract partial record ManualAdjustment
 					break;
 
 				case "VFRROUTE":
-					if (filecontents[0] != ':')
+					if (!filecontents.Split(Environment.NewLine)[0].Contains(':'))
 					{
 						Console.WriteLine("ERROR! Expected : in definition after VFRROUTE.");
 						AbsorbBlock(indent);
 						continue;
 					}
+
+					string vfrRouteFilter = "VFR Route";
+
+					if (filecontents[0] != ':')
+					{
+						vfrRouteFilter = filecontents[..filecontents.IndexOf(':')];
+						filecontents = filecontents[filecontents.IndexOf(':')..];
+					}
+
 					filecontents = filecontents[1..].TrimStart([' ', '\t']);
 
 					bool vfrRouteBlockFormat = NewlinePending();
@@ -392,7 +401,7 @@ internal abstract partial record ManualAdjustment
 						vfrRouteWaypoints.Add(prw);
 					}
 
-					yield return new AddVfrRoute([.. vfrRouteWaypoints]);
+					yield return new AddVfrRoute(vfrRouteFilter, [.. vfrRouteWaypoints]);
 					break;
 
 				case "AIRWAY":
@@ -598,7 +607,7 @@ internal record AddFix(string Name, PossiblyResolvedWaypoint Position) : ManualA
 internal sealed record AddVfrFix(string Name, PossiblyResolvedWaypoint Position) : AddFix(Name, Position);
 internal sealed record RemoveFix(PossiblyResolvedWaypoint Fix) : ManualDeletion;
 
-internal sealed record AddVfrRoute(PossiblyResolvedWaypoint[] Points) : ManualAddition;
+internal sealed record AddVfrRoute(string Filter, PossiblyResolvedWaypoint[] Points) : ManualAddition;
 
 internal sealed record AddAirway(PossiblyResolvedWaypoint[] Points, AddAirway.AirwayType Type, string Identifier) : ManualAddition
 {
