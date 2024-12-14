@@ -256,7 +256,7 @@ public record SIDLine(string Client,
 		CheckEmpty(line, 102, 106);
 		// line[106..111] is part of the pathterm.
 		Check(line, 111, 112, " ", "A", "B"); // Can be 'A' or 'B' sometimes for some reason? (see KJAC ALPIN4)
-										 // line[112..116] is part of the pathterm.
+											  // line[112..116] is part of the pathterm.
 		CheckEmpty(line, 116, 117);
 		char speedLimit = line[117]; // ??? Looks like either '-' or ' ', not really sure why.
 		CheckEmpty(line, 118, 123);
@@ -345,11 +345,8 @@ public record STARLine(string Client,
 			? null
 			: data[0..2] == "FL" ? new FlightLevel(int.Parse(data[2..])) : new AltitudeMSL(int.Parse(data));
 
-
 		AltitudeRestriction altitudeRestriction =
-			line[82] == ' '
-			? AltitudeRestriction.Unrestricted
-			: AltitudeRestriction.FromDescription(
+			AltitudeRestriction.FromDescription(
 				(AltitudeRestriction.AltitudeDescription)line[82],
 				getAlt(line[84..89]),
 				getAlt(line[89..94])

@@ -983,7 +983,7 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 		retval = retval.Trim();
 
 		if (Minimum is not null && Minimum == Maximum)
-			retval = $@"AT {Minimum.Feet / 100:000}";
+			retval = $@"{Minimum.Feet / 100:000}";
 
 		return string.IsNullOrWhiteSpace(retval) ? "Unrestricted" : retval;
 	}
