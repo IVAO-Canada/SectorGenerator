@@ -23,11 +23,11 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 	{
 		if (string.IsNullOrWhiteSpace(directory))
 			directory = Environment.CurrentDirectory;
-		else
-			directory = Path.GetFullPath(directory);
 
 		if (directory.StartsWith("s3://", StringComparison.InvariantCultureIgnoreCase))
 		{
+			SemaphoreSlim _continue = new(0);
+
 			Task t = Task.Run(async () =>
 			{
 				directory = directory[5..];
@@ -36,20 +36,30 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 				AmazonS3Client s3 = new();
 				directory = Environment.CurrentDirectory;
 
-				foreach (S3Object s3obj in (await s3.ListObjectsV2Async(new() { BucketName = bucketName, Prefix = prefix })).S3Objects)
+				try
 				{
-					var getResp = await s3.GetObjectAsync(s3obj.BucketName, s3obj.Key);
+					foreach (S3Object s3obj in (await s3.ListObjectsV2Async(new() { BucketName = bucketName, Prefix = prefix })).S3Objects)
+					{
+						var getResp = await s3.GetObjectAsync(s3obj.BucketName, s3obj.Key);
 
-					string outpath = Path.Combine(directory, "cifp", Path.GetFileName(s3obj.Key));
-					if (File.Exists(outpath))
-						File.Delete(outpath);
+						string outpath = Path.Combine(directory, "cifp", Path.GetFileName(s3obj.Key));
+						if (File.Exists(outpath))
+							File.Delete(outpath);
 
-					await getResp.WriteResponseStreamToFileAsync(outpath, false, CancellationToken.None);
+						await getResp.WriteResponseStreamToFileAsync(outpath, false, CancellationToken.None);
+					}
+				}
+				catch (Exception ex) { }
+				finally
+				{
+					_continue.Release();
 				}
 			});
 
-			t.Wait(TimeSpan.FromSeconds(10));
+			_continue.Wait();
 		}
+
+		directory = Path.GetFullPath(directory);
 
 		string zipPath = Path.Combine(directory, "CIFP.zip"),
 			   cifpPath = Path.Combine(directory, "FAACIFP18"),
@@ -122,6 +132,30 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		File.WriteAllText(Path.Combine(outputPath, "airway.json"), JsonSerializer.Serialize(Airways, opts));
 		File.WriteAllText(Path.Combine(outputPath, "procedure.json"), JsonSerializer.Serialize(Procedures, opts));
 		File.WriteAllText(Path.Combine(outputPath, "runway.json"), JsonSerializer.Serialize(Runways, opts));
+	}
+
+	public void SaveReduced(string? directory = null)
+	{
+		directory ??= Environment.CurrentDirectory;
+		string outputPath = Path.Combine(directory, "cifp-reduced");
+		JsonSerializerOptions opts = new() { WriteIndented = false };
+
+		Dictionary<string, ControlledAirspace.AirspaceClass> classes = Airspaces.GroupBy(a => a.Center.Trim()).ToDictionary(
+			g => g.Key,
+			g => g.Min(a => a.Class)
+		);
+
+		HashSet<string> bravosAndCharlies = [.. classes.Where(kvp => kvp.Value is ControlledAirspace.AirspaceClass.B or ControlledAirspace.AirspaceClass.C).Select(kvp => kvp.Key)];
+
+		Directory.CreateDirectory(outputPath);
+		File.WriteAllText(Path.Combine(outputPath, "mora.json"), JsonSerializer.Serialize(MORAs, opts));
+		File.WriteAllText(Path.Combine(outputPath, "airspace.json"), JsonSerializer.Serialize(Airspaces.Where(a => a.Class is ControlledAirspace.AirspaceClass.B or ControlledAirspace.AirspaceClass.C).ToArray(), opts));
+		File.WriteAllText(Path.Combine(outputPath, "aerodrome.json"), JsonSerializer.Serialize(Aerodromes.Values.Where(a => bravosAndCharlies.Contains(a.Identifier)).ToArray(), opts));
+		File.WriteAllText(Path.Combine(outputPath, "fix.json"), JsonSerializer.Serialize(Fixes, opts));
+		File.WriteAllText(Path.Combine(outputPath, "navaid.json"), JsonSerializer.Serialize(Navaids, opts));
+		File.WriteAllText(Path.Combine(outputPath, "airway.json"), JsonSerializer.Serialize(Airways, opts));
+		File.WriteAllText(Path.Combine(outputPath, "procedure.json"), JsonSerializer.Serialize(Procedures.ToDictionary(p => p.Key, p => p.Value.Where(pc => bravosAndCharlies.Contains(pc.Airport ?? "ZZZZ")).ToHashSet()), opts));
+		File.WriteAllText(Path.Combine(outputPath, "runway.json"), JsonSerializer.Serialize(Runways.ToDictionary(r => r.Key, r => r.Value.Where(rw => bravosAndCharlies.Contains(rw.Airport)).ToHashSet()), opts));
 	}
 
 	public CIFP(string[] cifpFileLines) : this()
@@ -269,14 +303,14 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 					{
 						if (awAccumulator.Count > 1)
 						{
-						Airway aw = new(procName, [.. awAccumulator], Fixes);
+							Airway aw = new(procName, [.. awAccumulator], Fixes);
 
-						if (!Airways.ContainsKey(aw.Identifier))
-							Airways.Add(aw.Identifier, []);
+							if (!Airways.ContainsKey(aw.Identifier))
+								Airways.Add(aw.Identifier, []);
 
-						Airways[aw.Identifier].Add(aw);
+							Airways[aw.Identifier].Add(aw);
 						}
-						
+
 						awAccumulator.Clear();
 					}
 

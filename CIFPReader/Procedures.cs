@@ -52,7 +52,7 @@ public class Procedure
 				SpeedRestriction? spd = null;
 				AltitudeRestriction? alt = null;
 
-				while (reader.TokenType != JsonTokenType.EndObject && reader.Read())
+				while (reader.TokenType != JsonTokenType.EndObject)
 				{
 					string propName = reader.GetString() ?? "";
 					if (!reader.Read())
@@ -86,9 +86,12 @@ public class Procedure
 
 						default: throw new JsonException();
 					}
+
+					if (!reader.Read())
+						break;
 				}
 
-				if (reader.TokenType != JsonTokenType.EndObject || !reader.Read())
+				if (reader.TokenType != JsonTokenType.EndObject)
 					throw new JsonException();
 
 				return new(pathTerm ?? throw new JsonException(), ep, via, refr, spd ?? SpeedRestriction.Unrestricted, alt ?? AltitudeRestriction.Unrestricted);

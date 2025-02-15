@@ -77,6 +77,8 @@ public class Program
 			try
 			{
 				cifp = CIFP.Load();
+				if (!Directory.Exists("cifp-reduced"))
+					cifp.SaveReduced();
 				break;
 			}
 			catch (TimeoutException) { /* Sometimes things choke. */ }
@@ -611,10 +613,8 @@ F;high.artcc
 
 					yield return $"L;{artcc};{points.Average(bp => bp.Latitude):00.0####};{points.Average(bp => bp.Longitude):000.0####};7;";
 
-#pragma warning disable IDE0042
 					foreach (var bp in points)
 						yield return $"T;{artcc}_{iter};{bp.Latitude:00.0####};{bp.Longitude:000.0####};";
-#pragma warning restore IDE0042
 				}
 			}
 
