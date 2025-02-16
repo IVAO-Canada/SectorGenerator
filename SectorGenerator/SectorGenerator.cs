@@ -331,6 +331,9 @@ public class Program
 			g["abandoned"] is null
 		);
 
+		Console.WriteLine($" Done!");
+		Console.Write("Filtering OSM data..."); await Console.Out.FlushAsync();
+
 		Dictionary<string, Way> apBoundaryWays = apBoundaries.WaysAndBoundaries()
 				.Select(w => (w["icao"], w))
 				.OrderBy(kvp => kvp.w.Tags.ContainsKey("military") ? 1 : 0)
@@ -342,6 +345,9 @@ public class Program
 			apBoundaryWays,
 			30
 		);
+
+		Console.WriteLine($" Done!");
+		Console.Write("Discovering missing ICAOs..."); await Console.Out.FlushAsync();
 
 		Dictionary<string, Way[]> artccOsmOnlyIcaos =
 			apBoundaries.GetFiltered(apb => !cifp.Aerodromes.ContainsKey(apb["icao"]!)).Group(
