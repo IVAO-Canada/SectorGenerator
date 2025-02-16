@@ -60,6 +60,7 @@ public class Program
 				catch (TimeoutException) { /* Sometimes things choke. */ }
 				catch (TaskCanceledException) { /* Sometimes things choke. */ }
 
+				Console.WriteLine("OSM download failed... Retrying");
 				await Task.Delay(TimeSpan.FromSeconds(15)); // Give it a breather.
 			}
 

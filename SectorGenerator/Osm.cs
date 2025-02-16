@@ -18,13 +18,13 @@ internal class Osm(OsmData data)
 	public FrozenDictionary<long, Relation> Relations => _aerodata.Relations;
 
 	public static async Task<Osm> Load() => 
-		new((await Overpass.FromQueryAsync(@"[out:json][timeout:240];
+		new((await Overpass.FromQueryAsync(@"[out:json][timeout:300];
 (area[""ISO3166-1:alpha3""=""USA""]; area[""ISO3166-1:alpha3""=""BHS""];)->.searchArea;
 (
 	nwr[""aeroway""](area.searchArea);
 	>;
 );
-out;", 5)).Filter(i => i["aeroway"] is not null));
+out;", 6)).Filter(i => i["aeroway"] is not null));
 
 	public Osm InRegion((double Latitude, double Longitude)[] boundingRegion)
 	{
