@@ -221,7 +221,7 @@ public class Program
 		(string Artcc, string Shape)[] artccWebeyeShapes = [..
 			artccBoundaries.Where(b => faaArtccs.Contains(b.Key)).Select(b => (
 				b.Key,
-				string.Join("\r\n", b.Value.SelectMany(v => v).Reverse().Select(p => $"{p.Latitude:00.0####}:{(p.Longitude > 0 ? p.Longitude - 360 : p.Longitude):000.0####}").ToArray())
+				string.Join("\r\n", [.. b.Value.SelectMany(v => v).Reverse().Select(p => $"{p.Latitude:00.0####}:{(p.Longitude > 0 ? p.Longitude - 360 : p.Longitude):000.0####}")])
 			))
 		];
 
@@ -252,31 +252,46 @@ public class Program
 
 		Console.Write("Getting ATC positions..."); await Console.Out.FlushAsync();
 		var atcPositions = await GetAtcPositionsAsync(apiToken, "K", "TJ", "PH", "PA");
-		Dictionary<string, JsonObject[]> positionArtccs = atcPositions.GroupBy(p =>
+		Dictionary<string, HashSet<JsonObject>> positionArtccs = [];
+		foreach (var p in atcPositions)
 		{
+			void add(string artcc)
+			{
+				if (positionArtccs.TryGetValue(artcc, out var set))
+					set.Add(p);
+				else
+					positionArtccs.Add(artcc, [p]);
+			}
+
 			string facility = p["composePosition"]!.GetValue<string>().Split("_")[0];
 
 			if (facility.StartsWith("KZ"))
-				return facility[1..];
+				add(facility[1..]);
 			else if (TraconCenters.TryGetValue(facility, out string? artcc))
-				return artcc;
+				add(artcc);
 			else if (!centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == facility)))
 			{
 				if ((p["airportId"] ?? p["centerId"])?.GetValue<string>() is string pos && centerAirports.Any(kvp => kvp.Value.Any(ad => ad.Identifier == pos)))
-					return centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == pos)).Key;
+				{
+					foreach (var artccFind in centerAirports.Where(kvp => kvp.Value.Any(ad => ad.Identifier == pos)))
+						add(artccFind.Key);
 
-				return facility[..2] switch {
+					continue;
+				}
+
+				add(facility[..2] switch {
 					"TJ" => "ZSU",
 					"PH" => "PHZH",
 					"PA" => "PAZA",
 					"PG" => "ZUA",
 					"MY" => "ZMA",
 					_ => "ZZZ"
-				};
+				});
 			}
 			else
-				return centerAirports.First(kvp => kvp.Value.Any(ad => ad.Identifier == facility)).Key;
-		}).ToDictionary(g => g.Key, g => g.ToArray());
+				foreach (var artccFind in centerAirports.Where(kvp => kvp.Value.Any(ad => ad.Identifier == facility)))
+					add(artccFind.Key);
+		}
 
 		Console.WriteLine(" Done!");
 
@@ -486,12 +501,9 @@ STOPBAR;#FFB30000;
 			// ATC Positions
 			string atcBlock = "[ATC]\r\nF;atc.atc\r\n";
 			if (positionArtccs.TryGetValue(artcc, out var artccPositions))
-			{
-				string allPositions = string.Join(' ', artccPositions.Select(p => p["composePosition"]!.GetValue<string>()));
 				File.WriteAllLines(Path.Combine(artccFolder, "atc.atc"), [..
-					artccPositions.Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};{allPositions};")
+					artccPositions.Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};K PA PH TJ;")
 				]);
-			}
 
 			// Airports (main)
 			string airportBlock = "[AIRPORT]\r\nF;airports.ap\r\n";
