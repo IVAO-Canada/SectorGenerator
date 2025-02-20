@@ -10,6 +10,7 @@ using WSleeman.Osm;
 using CIFPReader;
 
 using static SectorGenerator.Helpers;
+using static SectorGenerator.GeoConnector;
 
 namespace SectorGenerator;
 
@@ -448,6 +449,37 @@ public class Program
 			File.WriteAllText(Path.Combine(polygonFolder, icao + ".tfl"), tfl);
 
 		Console.WriteLine($" Done!");
+		Console.Write("Drawing online polys..."); await Console.Out.FlushAsync();
+
+		// Online polys
+
+		File.WriteAllText(Path.Combine(polygonFolder, "online.ply"), $@"{string.Join("\r\n\r\n", artccBoundaries.Select(kvp => WebeyeAirspaceDrawing.ToPolyfillPath($"{ArtccIcao(kvp.Key)}_CTR", "CTR", [.. kvp.Value.SelectMany(p => p)])))}
+
+
+		{string.Join("\r\n\r\n",
+		positionArtccs.Values.SelectMany(v => v)
+			.Where(p => p["composePosition"] is not null && p["position"]?.GetValue<string>() is "APP" or "DEP" or "CTR" or "FSS" && p["regionMap"] is JsonArray map && map.Count > 1)
+			.Select(p => WebeyeAirspaceDrawing.ToPolyfillPath(p["composePosition"]!.GetValue<string>(), p["position"]!.GetValue<string>(), p["regionMap"]!.AsArray()))
+		)}
+
+		"
+		+ string.Join("\r\n\r\n",
+		centerAirports.Values.SelectMany(v => v).DistinctBy(ad => ad.Identifier)
+			.Select(ad => apBoundaryWays.TryGetValue(ad.Identifier, out var retval) ? (ad.Identifier, retval) : ((string, Way)?)null)
+			.Where(ap => ap is not null)
+			.Cast<(string Icao, Way Boundary)>()
+		.Select(ap => (
+				Pos: string.Join(' ',
+					positionArtccs.Values.SelectMany(v => v)
+						.Where(p => p["airportId"]?.GetValue<string>() == ap.Icao && p["position"]?.GetValue<string>() == "TWR")
+						.Select(p => p["composePosition"]!.GetValue<string>())
+				),
+				Bounds: ap.Boundary
+			))
+			.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Pos, "TWR", ap.Bounds))
+	)
+	);
+		Console.WriteLine($" Done!");
 #endif
 
 		// Write ISCs
@@ -535,13 +567,13 @@ STOPBAR;#FFB30000;
 		));
 
 			// Airways
-			Airway[] inScopeLowAirways = [.. 
+			Airway[] inScopeLowAirways = [..
 				cifp.Airways.Where(kvp => kvp.Key[0] is 'V' or 'T')
 					.Where(kvp => !manualAdjustments.Any(a => a is RemoveAirway raw && raw.Identifier.Equals(kvp.Key, StringComparison.InvariantCultureIgnoreCase)))
 					.SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInArtccC(artcc, p.Point))))
 			];
 
-			Airway[] inScopeHighAirways = [.. 
+			Airway[] inScopeHighAirways = [..
 				cifp.Airways.Where(kvp => kvp.Key[0] is 'Q' or 'J')
 					.Where(kvp => !manualAdjustments.Any(a => a is RemoveAirway raw && raw.Identifier.Equals(kvp.Key, StringComparison.InvariantCultureIgnoreCase)))
 					.SelectMany(kvp => kvp.Value.Where(v => v.Count() >= 2 && v.Any(p => IsInArtccC(artcc, p.Point))))
@@ -682,7 +714,7 @@ F;high.artcc
 			);
 
 			// MRVAs
-			Mrva mrvas = new([..artccBoundaries[artcc].SelectMany(v => v)]);
+			Mrva mrvas = new([.. artccBoundaries[artcc].SelectMany(v => v)]);
 			string mvaBlock = $@"[MVA]
 {string.Join("\r\n", mrvas.Volumes.Keys.Select(k => "F;" + k + ".mva"))}
 ";
@@ -729,32 +761,6 @@ F;coast.geo
 			string polyfillBlock = $@"[FILLCOLOR]
 F;online.ply
 ";
-			File.WriteAllText(Path.Combine(artccFolder, "online.ply"), $@"{WebeyeAirspaceDrawing.ToPolyfillPath($"{ArtccIcao(artcc)}_CTR", "CTR", [..artccBoundaries[artcc].SelectMany(p => p)])}
-
-{string.Join("\r\n\r\n",
-			positionArtccs[artcc]
-				.Where(p => p["composePosition"] is not null && p["position"]?.GetValue<string>() is "APP" or "DEP" or "CTR" or "FSS" && p["regionMap"] is JsonArray map && map.Count > 1)
-				.Select(p => WebeyeAirspaceDrawing.ToPolyfillPath(p["composePosition"]!.GetValue<string>(), p["position"]!.GetValue<string>(), p["regionMap"]!.AsArray()))
-		)}
-"
-#if OSM
-			+ string.Join("\r\n\r\n",
-			centerAirports[artcc]
-				.Select(ad => apBoundaryWays.TryGetValue(ad.Identifier, out var retval) ? (ad.Identifier, retval) : ((string, Way)?)null)
-				.Where(ap => ap is not null)
-				.Cast<(string Icao, Way Boundary)>()
-				.Select(ap => (
-					Pos: string.Join(' ',
-						positionArtccs[artcc]
-							.Where(p => p["airportId"]?.GetValue<string>() == ap.Icao && p["position"]?.GetValue<string>() == "TWR")
-							.Select(p => p["composePosition"]!.GetValue<string>())
-					),
-					Bounds: ap.Boundary
-				))
-				.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Pos, "TWR", ap.Bounds))
-		)
-#endif
-		);
 
 			File.WriteAllText(Path.Combine(config.OutputFolder, $"{ArtccIcao(artcc)}.isc"), $@"{infoBlock}
 {defineBlock}
