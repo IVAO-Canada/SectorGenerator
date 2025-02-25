@@ -12,7 +12,7 @@ internal class Taxiways(string airport, Osm taxiways)
 	{
 		get
 		{
-			const float SPACING_SHORT = 0.0015f, SPACING_LONG = 0.005f;
+			const float SPACING_SHORT = 0.0025f, SPACING_LONG = 0.005f;
 
 			Way[] taxiways = [.. _osm.WaysAndBoundaries().Where(w => w.Tags.ContainsKey("ref"))];
 			HashSet<(string Label, double Latitude, double Longitude)> labels = [];
