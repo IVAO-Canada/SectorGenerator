@@ -697,7 +697,7 @@ F;online.ply
 			List<string> gtsLabels = [];
 
 			// Aprons & Buildings
-			foreach (Way location in apOsm.GetFiltered(g => g["aeroway"] is "apron" or "helipad" && ((g["name"] ?? g["ref"]) is not null)).WaysAndBoundaries())
+			foreach (Way location in apOsm.GetFiltered(g => g["aeroway"] is "apron" or "terminal" or "hangar" or "helipad" && ((g["name"] ?? g["ref"]) is not null)).WaysAndBoundaries())
 			{
 				string label = (location["name"] ?? location["ref"])!;
 				gtsLabels.Add($"{label};{icao};{location.Nodes.Average(n => n.Latitude) - CHAR_WIDTH:00.0####};{location.Nodes.Average(n => n.Longitude) - label.Length * CHAR_WIDTH / 2:000.0####};");
