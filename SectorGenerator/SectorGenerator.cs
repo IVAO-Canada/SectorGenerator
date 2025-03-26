@@ -340,7 +340,7 @@ public class Program
         if (!Directory.Exists(mvaFolder))
             Directory.CreateDirectory(mvaFolder);
 
-        Mrva mrvas = new([]);
+        Mrva mrvas = new();
 
         string genLabelLine(string volume, Mrva.MrvaSegment seg)
         {

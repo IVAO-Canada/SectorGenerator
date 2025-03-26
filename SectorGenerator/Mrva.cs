@@ -20,9 +20,9 @@ internal partial class Mrva
 
 	FrozenDictionary<string, MrvaSegment[]> _volumes = FrozenDictionary<string, MrvaSegment[]>.Empty;
 
-	public Mrva((double, double)[] boundary)
+	public Mrva()
 	{
-		Task t = Task.Run(async () => await GenerateMrvasAsync(boundary));
+		Task t = Task.Run(async () => await GenerateMrvasAsync());
 
 		DateTimeOffset startTime = DateTimeOffset.UtcNow;
 		while (!t.IsCompleted && (DateTimeOffset.UtcNow - startTime).TotalMinutes < 1)
@@ -61,7 +61,7 @@ internal partial class Mrva
 		return retval;
 	}
 
-	private async Task GenerateMrvasAsync((double, double)[] boundary)
+	private async Task GenerateMrvasAsync()
 	{
 		if (_mrvaBlobs.IsEmpty)
 		{
@@ -76,7 +76,7 @@ internal partial class Mrva
 					? descNode.InnerText.Split("_MVA")[0] : null;
 
 				foreach (XmlNode airspace in rootNode.ChildNodes.Cast<XmlNode>()
-											.Where((XmlNode n) => n.Name == "ns8:hasMember" && n["ns3:Airspace"] is not null)
+											.Where(static n => n.Name is "ns8:hasMember" && n["ns3:Airspace"] is not null)
 											.Select(n => n["ns3:Airspace"]!))
 				{
 					if (airspace["ns3:timeSlice"]?["ns3:AirspaceTimeSlice"] is not XmlNode timeSlice ||
@@ -104,9 +104,7 @@ internal partial class Mrva
 			}
 		}
 
-		_volumes = _mrvaBlobs
-		.Where(blob => boundary.Length > 0 && blob.Value.Any(seg => seg.BoundaryPoints.Any(p => IsInPolygon(boundary, p))))
-		.ToFrozenDictionary();
+		_volumes = _mrvaBlobs.ToFrozenDictionary();
 	}
 
 	public (double Latitude, double Longitude) PlaceLabel(MrvaSegment segment) => PlaceLabel(segment.BoundaryPoints, _volumes.Values.SelectMany(v => v.Select(s => s.BoundaryPoints)));
