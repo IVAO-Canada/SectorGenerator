@@ -12,11 +12,11 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 {
 	private readonly Airspace[] _airspaces = [.. cifpAirspaces];
 	private readonly (AirspaceClass AsClass, string Label, (double Latitude, double Longitude)[] Region)[] _linearRegions = [.. cifpAirspaces.SelectMany(LinearizeAirspace)];
-	private readonly (AirspaceClass AsClass, (double Latitude, double Longitude) From, (double Latitude, double Longitude) To)[] _segmented = [.. cifpAirspaces.SelectMany(SegmentAirspace)];
+	private readonly (string Airport, AirspaceClass AsClass, (double Latitude, double Longitude) From, (double Latitude, double Longitude) To)[] _segmented = [.. cifpAirspaces.SelectMany(SegmentAirspace)];
 
-	private static (AirspaceClass AsClass, (double Latitude, double Longitude) From, (double Latitude, double Longitude) To)[] SegmentAirspace(Airspace asp)
+	private static (string Airport, AirspaceClass AsClass, (double Latitude, double Longitude) From, (double Latitude, double Longitude) To)[] SegmentAirspace(Airspace asp)
 	{
-		List<(AirspaceClass AsClass, (double Latitude, double Longitude) From, (double Latitude, double Longitude) To)> segments = [];
+		List<(string Airport, AirspaceClass AsClass, (double Latitude, double Longitude) From, (double Latitude, double Longitude) To)> segments = [];
 
 		foreach (var i in asp.Regions)
 		{
@@ -93,7 +93,7 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 				}
 			}
 
-			segments.AddRange(drawRoute.ToSegments().Select(seg => (asClass, seg.From, seg.To)));
+			segments.AddRange(drawRoute.ToSegments().Select(seg => (asp.Center, asClass, seg.From, seg.To)));
 		}
 
 		return [.. segments];
@@ -259,6 +259,38 @@ internal class CifpAirspaceDrawing(IEnumerable<Airspace> cifpAirspaces)
 			}
 
 			return sb.ToString();
+		}
+	}
+
+	public IEnumerable<(string Name, string Shape)> WebeyeShapes
+	{
+		get
+		{
+			if (_segmented.Length == 0)
+				yield break;
+
+			StringBuilder sb = new();
+			string ap = _segmented[0].Airport;
+			(double Latitude, double Longitude) next = (0, 0);
+
+			foreach (var l in _segmented)
+			{
+				var (lap, _, from, to) = l;
+
+				if (lap != ap)
+				{
+					sb.AppendLine($"{next.Latitude:00.00000}:{next.Longitude:000.00000}");
+					yield return (ap, sb.ToString());
+					sb.Clear();
+					ap = lap;
+				}
+
+				sb.AppendLine($"{from.Latitude:00.00000}:{from.Longitude:000.00000}");
+				next = to;
+			}
+
+			sb.AppendLine($"{next.Latitude:00.00000}:{next.Longitude:000.00000}");
+			yield return (ap, sb.ToString());
 		}
 	}
 

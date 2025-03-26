@@ -22,7 +22,7 @@ internal partial class Mrva
 
 	public Mrva((double, double)[] boundary)
 	{
-		Task t = Task.Run(() => GenerateMrvas(boundary));
+		Task t = Task.Run(async () => await GenerateMrvasAsync(boundary));
 
 		DateTimeOffset startTime = DateTimeOffset.UtcNow;
 		while (!t.IsCompleted && (DateTimeOffset.UtcNow - startTime).TotalMinutes < 1)
@@ -61,7 +61,7 @@ internal partial class Mrva
 		return retval;
 	}
 
-	private async Task GenerateMrvas((double, double)[] boundary)
+	private async Task GenerateMrvasAsync((double, double)[] boundary)
 	{
 		if (_mrvaBlobs.IsEmpty)
 		{
