@@ -596,7 +596,7 @@ F;high.artcc
 
 			File.WriteAllLines(Path.Combine(firFolder, "vfr.vfi"), [..
 		fixes
-			.Where(f => f.Key.StartsWith("VP"))
+			.Where(f => f.Key.StartsWith("VC"))
 					.Concat(vfrFixes.Select(f => (Key: f.Name, Point: f.GetCoordinate())))
 					.Where(f => IsInFir(fir, f.Point))
 			.Select(f => $"{f.Key};;{f.Point.Latitude:00.0####};{f.Point.Longitude:000.0####};")

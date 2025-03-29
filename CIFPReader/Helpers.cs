@@ -49,9 +49,9 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		TblSid[] sids = [.. airac.TblSids.Where(s => s.AirportIdentifier.StartsWith(prefix))];
 		TblStar[] stars = [.. airac.TblStars.Where(s => s.AirportIdentifier.StartsWith(prefix))];
 		TblIap[] iaps = [.. airac.TblIaps.Where(s => s.AirportIdentifier.StartsWith(prefix))];
-		TblEnrouteAirway[] airways = [.. airac.TblEnrouteAirways.Where(f => f.AreaCode == "CAN")];
-		TblEnrouteWaypoint[] enrWaypoints = [.. airac.TblEnrouteWaypoints.Where(f => f.AreaCode == "CAN")];
-		TblTerminalWaypoint[] tmlWaypoints = [.. airac.TblTerminalWaypoints.Where(f => f.AreaCode == "CAN")];
+		TblEnrouteAirway[] airways = [.. airac.TblEnrouteAirways.Where(static f => f.AreaCode == "CAN" || f.IcaoCode == "BG")];
+		TblEnrouteWaypoint[] enrWaypoints = [.. airac.TblEnrouteWaypoints.Where(static f => f.AreaCode == "CAN" || f.IcaoCode == "BG" || ((f.IcaoCode == "EG" || f.IcaoCode == "LF") && f.WaypointLongitude <= -8))];
+		TblTerminalWaypoint[] tmlWaypoints = [.. airac.TblTerminalWaypoints.Where(static f => f.AreaCode == "CAN")];
 
 		Altitude? parseAlt(string? alt) =>
 			alt is null ? null :
