@@ -12,13 +12,13 @@ internal class Taxiways(string airport, Osm taxiways)
 		{
 			const float SPACING_SHORT = 0.0025f, SPACING_LONG = 0.005f;
 
-			Way[] taxiways = [.. _osm.WaysAndBoundaries().Where(w => w.Tags.ContainsKey("ref"))];
+			Way[] taxiways = [.. _osm.WaysAndBoundaries().Where(w => w.Tags.ContainsKey("ref") || w.Tags.ContainsKey("name"))];
 			HashSet<(string Label, double Latitude, double Longitude)> labels = [];
 			HashSet<string> neededLabels = [], placedLabels = [];
 
 			foreach (Way taxiway in taxiways)
 			{
-				string label = taxiway["ref"]!;
+				string label = taxiway["ref"] ?? taxiway["name"]!;
 				neededLabels.Add(label);
 
 				if (taxiway.Nodes.Length <= 1)
