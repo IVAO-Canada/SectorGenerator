@@ -726,14 +726,14 @@ F;high.artcc
 
             File.WriteAllLines(
                 Path.Combine(artccFolder, "vfr.vrt"),
-                Enumerable.Range(0, applicableRoutes.Length).Select(routeIdx =>
-                    string.Join("\r\n", applicableRoutes[routeIdx].Points.Select(r =>
+                applicableRoutes.Select((route, routeIdx) =>
+                    string.Join("\r\n", route.Points.Concat(route.Points[1..^1].Reverse()).Select(r =>
                     {
                         if (r is NamedCoordinate nc)
-                            return $"{applicableRoutes[routeIdx].Filter};{routeIdx + 1};{nc.Name};{nc.Name};";
+                            return $"{route.Filter};{routeIdx + 1};{nc.Name};{nc.Name};";
 
                         Coordinate c = r.GetCoordinate();
-                        return $"{applicableRoutes[routeIdx].Filter};{routeIdx + 1};{c.Latitude:00.0####};{c.Longitude:000.0####};";
+                        return $"{route.Filter};{routeIdx + 1};{c.Latitude:00.0####};{c.Longitude:000.0####};";
                     })))
             );
 
