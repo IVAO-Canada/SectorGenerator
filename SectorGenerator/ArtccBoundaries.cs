@@ -33,7 +33,7 @@ internal static class ArtccBoundaries
 		return (
 			boundaries,
 			allPointsInBoundary.ToDictionary(kvp => kvp.Key, kvp => allPointsInBoundary.Keys.Where(k => k != kvp.Key && allPointsInBoundary[k].Intersect(kvp.Value).Any()).ToArray()),
-			[..gd.features.Where(f => boundaries.ContainsKey(f.attributes.IDENT ?? "") && f.attributes.COUNTRY == "United States").Select(f => f.attributes.IDENT).Distinct()]
+			[..gd.features.Where(f => boundaries.ContainsKey(f.attributes.IDENT ?? "") && f.attributes.COUNTRY == "United States").Select(f => f.attributes.IDENT ?? "").Distinct()]
 		);
 	}
 

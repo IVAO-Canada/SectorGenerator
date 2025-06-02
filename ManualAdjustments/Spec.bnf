@@ -1,0 +1,54 @@
+﻿File		::= Adjustment File
+			  | ε
+
+Adjustment	::= FixDef
+			  | AirwayDef
+			  | VfrFixDef
+			  | VfrRouteDef
+			  | GeoDef
+			  | ProcDef
+
+FixDef		::= 'FIX' Name ':' Location
+			  | 'FIX' Name ':' 'DELETE'
+
+AirwayDef	::= 'AIRWAY' AirwayType Name ':' LocationList
+
+VfrFixDef	::= 'VFRFIX' Name ':' Location
+
+VfrRouteDef	::= 'VFRROUTE' Name ':' LocationList
+
+GeoDef		::= 'GEO' Name OptParameter ':' GeoList
+
+ProcDef		::= 'PROC' Airport ProcType Name ':' GeoList
+			  | 'PROC' Airport ProcType Name ':' 'DELETE'
+
+GeoList	::= Geo
+		  | Geo GeoList
+
+Geo		::= Indent Symbol
+		  | Indent Connector
+
+Symbol		::= SymbolType OptParameter Location
+Connector	::= ConnectorType OptParameter LocationList
+
+LocationList	::= Location
+				  | Location LocationList
+
+Location	::= Name Coordinate? RadialDist?
+			  | Coordinate RadialDist?
+
+OptParameter	::= Parameter
+				  | ε
+
+Name		:= [\w/]+(?!\d{0,2}@)|"[^"]+"
+Airport		:= [A-Z]{4}
+Coordinate	:= \([+-]?\d+(\.\d+)?\s*\W\s*[+-]?\d+(\.\d+)?\)
+RadialDist	:= \d{3}@\d+(\.\d*)?
+
+Parameter	:= \((\d+(\.\d+)?|#\d{6}(\d{2})?|[NSEW])\)
+Indent		:= ^[^\S\r\n]+(?=\S)
+
+AirwayType		:= HIGH|LOW
+ProcType		:= SID|STAR|IAP
+SymbolType		:= POINT|CIRCLE|WAYPOINT|TRIANGLE|NUCLEAR|FLAG|DIAMOND|CHEVRON|BOX|STAR
+ConnectorType	:= LINE|DASH|ARROW|ARC|DASHARC
