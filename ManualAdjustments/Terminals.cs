@@ -16,7 +16,7 @@ public static partial class Parsing
 		for (int inputIdx = 0; inputIdx < input.Length; ++inputIdx)
 			if (input[inputIdx] is '\r' or '\n')
 			{
-				if (input[inputIdx..(inputIdx + 2)] is "\r\n")
+				if (input.AsSpan()[inputIdx..].StartsWith("\r\n"))
 					// \r\n is one line break!
 					++inputIdx;
 
