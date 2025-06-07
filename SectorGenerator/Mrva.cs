@@ -14,6 +14,7 @@ internal partial class Mrva : IDisposable
 	readonly HttpClient _http = new();
 	readonly ConcurrentDictionary<string, string> _fileCache = [];
 
+	/// <summary>A dictionary mapping place names (usually TRACONs) to a set of MRVA segments.</summary>
 	public FrozenDictionary<string, MrvaSegment[]> Volumes => _volumes;
 
 	FrozenDictionary<string, MrvaSegment[]> _volumes = FrozenDictionary<string, MrvaSegment[]>.Empty;

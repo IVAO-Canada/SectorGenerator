@@ -344,28 +344,30 @@ public class Program
 		if (!Directory.Exists(mvaFolder))
 			Directory.CreateDirectory(mvaFolder);
 
-		string genLabelLine(string volume, Mrva.MrvaSegment seg)
-		{
-			var (lat, lon) = mrvas.PlaceLabel(seg);
-			return $"L;{seg.Name};{lat:00.0####};{lon:000.0####};{seg.MinimumAltitude / 100:000};8;";
-		}
-
 		await mrvaLoader;
 		if (mrvas.Volumes.Count is 0)
 			Console.WriteLine(" Failed! (bypassing)");
 		else
 		{
-			foreach (var (fn, volume) in mrvas!.Volumes)
+			Parallel.ForEach(mrvas.Volumes, async arg => {
 				try
 				{
-					File.WriteAllLines(Path.Combine(mvaFolder, fn + ".mva"),
-						volume.Select(seg => string.Join("\r\n",
-							seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
-											  .Prepend(genLabelLine(fn, seg))
-						))
-					);
+					var (fn, volume) = arg;
+					using StreamWriter mvaFile = new(Path.Combine(mvaFolder, fn + ".mva"), false);
+
+					foreach (var seg in volume)
+					{
+						// Place the label line.
+						var (lat, lon) = mrvas.PlaceLabel(seg);
+						await mvaFile.WriteLineAsync($"L;{seg.Name};{lat:00.0####};{lon:000.0####};{seg.MinimumAltitude / 100:000};8;");
+
+						// Add all the segments for that volume.
+						foreach (var bp in seg.BoundaryPoints)
+							await mvaFile.WriteLineAsync($"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};");
+					}
 				}
 				catch (IOException) { /* File in use. */ }
+			});
 
 			Console.WriteLine($" Done!");
 		}
@@ -746,18 +748,15 @@ F;high.artcc
 {string.Join("\r\n", mrvas.Volumes.Keys.Select(k => "F;" + k + ".mva"))}
 ";
 
-			lock (mrvas)
-			{
-				// Airports (additional)
-				File.AppendAllLines(Path.Combine(artccFolder, "airports.ap"), [..
+			// Airports (additional)
+			File.AppendAllLines(Path.Combine(artccFolder, "airports.ap"), [..
 				mrvas.Volumes.Keys
 					.Where(k => !centerAirports[artcc].Any(ad => ad.Identifier == k)).Select(k =>
 						$"{k};{mrvas.Volumes[k].Min(s => s.MinimumAltitude)};18000;" +
 						$"{mrvas.Volumes[k].Average(s => s.BoundaryPoints.Average((Func<(double Latitude, double _), double>)(bp => bp.Latitude))):00.0####};{mrvas.Volumes[k].Average(s => s.BoundaryPoints.Average((Func<(double _, double Longitude), double>)(bp => bp.Longitude))):000.0####};" +
 						$"{k} TRACON;"
 					)
-				]);
-			}
+			]);
 
 			// Geo file references
 			string geoBlock = @$"[GEO]
