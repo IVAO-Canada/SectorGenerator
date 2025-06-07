@@ -1,61 +1,62 @@
 ﻿using System.Collections.Concurrent;
 using System.Collections.Frozen;
-using System.Text.RegularExpressions;
+using System.IO.Compression;
 using System.Xml;
 
 using static SectorGenerator.Helpers;
 
 namespace SectorGenerator;
-internal partial class Mrva
+internal partial class Mrva : IDisposable
 {
-	const string FAA_MRVA_LISTING = @"https://aeronav.faa.gov/MVA_Charts/aixm/";
-	const string FAA_MRVA_ROOT = @"https://aeronav.faa.gov";
+	private readonly string _fileDir;
 
-	static readonly ConcurrentDictionary<string, MrvaSegment[]> _mrvaBlobs = [];
-	static readonly HttpClient _http = new();
-	static readonly ConcurrentDictionary<string, string> _fileCache = [];
-	static string? _directoryListing = null;
+	readonly ConcurrentDictionary<string, MrvaSegment[]> _mrvaBlobs = [];
+	readonly HttpClient _http = new();
+	readonly ConcurrentDictionary<string, string> _fileCache = [];
 
+	/// <summary>A dictionary mapping place names (usually TRACONs) to a set of MRVA segments.</summary>
 	public FrozenDictionary<string, MrvaSegment[]> Volumes => _volumes;
 
 	FrozenDictionary<string, MrvaSegment[]> _volumes = FrozenDictionary<string, MrvaSegment[]>.Empty;
 
-	public Mrva()
+	public static async Task<Mrva> LoadMrvasAsync()
 	{
-		Task t = Task.Run(async () => await GenerateMrvasAsync());
-
-		DateTimeOffset startTime = DateTimeOffset.UtcNow;
-		while (!t.IsCompleted && (DateTimeOffset.UtcNow - startTime).TotalMinutes < 1)
-			Task.Delay(100).Wait();
+		Mrva retval = new(Path.Combine(Path.GetTempPath(), "mrvas"));
+		await retval.GenerateMrvasAsync();
+		return retval;
 	}
+
+	public Mrva(string fileDir) => _fileDir = fileDir;
 
 	private async Task<Dictionary<string, XmlDocument>> GetMrvaXmlDocs()
 	{
 		Dictionary<string, XmlDocument> retval = [];
-		_directoryListing ??= await _http.GetStringAsync(FAA_MRVA_LISTING);
 
-		foreach (string xmlUrl in Fus3Url().Matches(_directoryListing).Select(m => m.Groups["url"].Value))
+		if (!Directory.Exists(_fileDir))
+			Directory.CreateDirectory(_fileDir);
+
+		using (Stream githubStream = await _http.GetStreamAsync("https://github.com/dark/faa-mva-kml/archive/refs/heads/master.zip"))
+		{
+			ZipFile.ExtractToDirectory(githubStream, _fileDir, true);
+		}
+
+		foreach (string filePath in Directory.EnumerateFiles(_fileDir).Where(static fp => fp.Contains("FUS3")))
 		{
 			XmlDocument xmlDoc = new();
-			if (!_fileCache.TryGetValue(FAA_MRVA_ROOT + xmlUrl, out string? mrvaXmlData))
+			if (!_fileCache.TryGetValue(filePath, out string? mrvaXmlData))
 			{
 				int failcount = 0;
 				while (mrvaXmlData is null && failcount < 5)
-				{
-					try
-					{
-						mrvaXmlData = await _http.GetStringAsync(FAA_MRVA_ROOT + xmlUrl);
-					}
-					catch (HttpRequestException) { failcount++; }
-				}
+					mrvaXmlData = File.ReadAllText(filePath);
+
 				if (failcount >= 5)
 					continue;
 
-				_fileCache[FAA_MRVA_ROOT + xmlUrl] = mrvaXmlData!;
+				_fileCache[filePath] = mrvaXmlData!;
 			}
 
 			xmlDoc.LoadXml(mrvaXmlData!);
-			retval[xmlUrl] = xmlDoc;
+			retval[filePath] = xmlDoc;
 		}
 
 		return retval;
@@ -63,8 +64,10 @@ internal partial class Mrva
 
 	private async Task GenerateMrvasAsync()
 	{
+		if (_volumes.Count is not 0)
+			return;
+
 		if (_mrvaBlobs.IsEmpty)
-		{
 			foreach (var (xmlUrl, xmlDoc) in await GetMrvaXmlDocs())
 			{
 				if (xmlDoc["ns8:AIXMBasicMessage"] is not XmlNode rootNode)
@@ -102,7 +105,6 @@ internal partial class Mrva
 
 				_mrvaBlobs.TryAdd(nameParts, [.. segments]);
 			}
-		}
 
 		_volumes = _mrvaBlobs.ToFrozenDictionary();
 	}
@@ -184,8 +186,13 @@ internal partial class Mrva
 	public static bool AreaContainsArea((double, double)[] area1, (double, double)[] area2) =>
 		area2.Any(p => IsInPolygon(area1, p));
 
-	[GeneratedRegex("<a href=\"(?<url>[^\"]+FUS3[^\"]+xml)\">", RegexOptions.ExplicitCapture | RegexOptions.Compiled | RegexOptions.IgnoreCase)]
-	private partial Regex Fus3Url();
+	public void Dispose()
+	{
+		if (Directory.Exists(_fileDir))
+			Directory.Delete(_fileDir, true);
+
+		_http.Dispose();
+	}
 
 	public record MrvaSegment(string Name, int MinimumAltitude, (double Latitude, double Longitude)[] BoundaryPoints) { }
 }

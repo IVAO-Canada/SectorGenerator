@@ -37,7 +37,7 @@ internal class Parser(string input)
 		}
 
 		if (position == -1 || position >= _tweSet.Keys.Max())
-			return new ParseResult<ManualAdjustment[]>.Success(position, range, [.. adjustments], [.. children]);
+			return new ParseResult<ManualAdjustment[]>.Success(position, range, [.._adHocFixes, .. adjustments], [.. children]);
 		else
 			return new ParseResult<ManualAdjustment[]>.Failed(position, range, [], [.. children]);
 	}
