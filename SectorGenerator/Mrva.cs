@@ -40,7 +40,10 @@ internal partial class Mrva : IDisposable
 			ZipFile.ExtractToDirectory(githubStream, _fileDir, true);
 		}
 
-		foreach (string filePath in Directory.EnumerateFiles(_fileDir).Where(static fp => fp.Contains("FUS3")))
+		string xmlDir = Path.Combine(_fileDir, "xml");
+		Directory.Move(Path.Combine(_fileDir, "faa-mva-kml-master", "mva-faa-xml"), xmlDir);
+
+		foreach (string filePath in Directory.EnumerateFiles(xmlDir).Where(static fp => fp.Contains("FUS3")))
 		{
 			XmlDocument xmlDoc = new();
 			if (!_fileCache.TryGetValue(filePath, out string? mrvaXmlData))
