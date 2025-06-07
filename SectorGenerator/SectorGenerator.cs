@@ -47,7 +47,7 @@ public class Program
 		bool IsInArtccC(string artcc, ICoordinate point) => artccBoundaries[artcc].Any(b => IsInPolygon(b, point));
 
 		Console.Write("Queueing MRVA data downloads..."); await Console.Out.FlushAsync();
-		Mrva mrvas = new(); // Empty
+		Mrva mrvas = new(""); // Empty
 
 		Task mrvaLoader = Task.Run(async () => mrvas = await Mrva.LoadMrvasAsync());
 
