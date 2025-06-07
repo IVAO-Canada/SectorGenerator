@@ -47,8 +47,9 @@ public class Program
 		bool IsInArtccC(string artcc, ICoordinate point) => artccBoundaries[artcc].Any(b => IsInPolygon(b, point));
 
 #if OSM
-		Console.Write("Queueing OSM data download..."); await Console.Out.FlushAsync();
+		Console.Write("Queueing OSM & MRVA data downloads..."); await Console.Out.FlushAsync();
 		Osm? osm = null;
+		Mrva mrvas = new(); // Empty
 
 		Task osmLoader = Task.Run(async () => {
 			for (int iterations = 0; iterations < 3; ++iterations)
@@ -68,6 +69,8 @@ public class Program
 			if (osm is null)
 				throw new Exception("Could not download OSM data.");
 		});
+
+		Task mrvaLoader = Task.Run(async () => mrvas = await Mrva.LoadMrvasAsync());
 
 		Console.WriteLine(" Done!");
 #endif
@@ -337,28 +340,31 @@ public class Program
 		if (!Directory.Exists(mvaFolder))
 			Directory.CreateDirectory(mvaFolder);
 
-		Mrva mrvas = new();
-
 		string genLabelLine(string volume, Mrva.MrvaSegment seg)
 		{
 			var (lat, lon) = mrvas.PlaceLabel(seg);
 			return $"L;{seg.Name};{lat:00.0####};{lon:000.0####};{seg.MinimumAltitude / 100:000};8;";
 		}
 
-		foreach (var (fn, volume) in mrvas.Volumes)
-			try
-			{
-				File.WriteAllLines(Path.Combine(mvaFolder, fn + ".mva"),
-					volume.Select(seg => string.Join("\r\n",
-						seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
-										  .Prepend(genLabelLine(fn, seg))
-					))
-				);
-			}
-			catch (IOException) { /* File in use. */ }
+		await mrvaLoader;
+		if (mrvas.Volumes.Count is 0)
+			Console.WriteLine(" Failed! (bypassing)");
+		else
+		{
+			foreach (var (fn, volume) in mrvas!.Volumes)
+				try
+				{
+					File.WriteAllLines(Path.Combine(mvaFolder, fn + ".mva"),
+						volume.Select(seg => string.Join("\r\n",
+							seg.BoundaryPoints.Select(bp => $"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};")
+											  .Prepend(genLabelLine(fn, seg))
+						))
+					);
+				}
+				catch (IOException) { /* File in use. */ }
 
-		Console.WriteLine($" Done!");
-		ConcurrentDictionary<string, bool> mrvaWrites = [];
+			Console.WriteLine($" Done!");
+		}
 
 #if OSM
 		Console.Write("Awaiting OSM download..."); await Console.Out.FlushAsync();

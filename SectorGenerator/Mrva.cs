@@ -6,7 +6,7 @@ using System.Xml;
 using static SectorGenerator.Helpers;
 
 namespace SectorGenerator;
-internal partial class Mrva
+internal partial class Mrva()
 {
 	const string FAA_MRVA_LISTING = @"https://aeronav.faa.gov/MVA_Charts/aixm/";
 	const string FAA_MRVA_ROOT = @"https://aeronav.faa.gov";
@@ -20,13 +20,16 @@ internal partial class Mrva
 
 	FrozenDictionary<string, MrvaSegment[]> _volumes = FrozenDictionary<string, MrvaSegment[]>.Empty;
 
-	public Mrva()
+	public static async Task<Mrva> LoadMrvasAsync()
 	{
-		Task t = Task.Run(async () => await GenerateMrvasAsync());
+		Mrva retval = new();
+		Task t = Task.Run(retval.GenerateMrvasAsync);
 
 		DateTimeOffset startTime = DateTimeOffset.UtcNow;
 		while (!t.IsCompleted && (DateTimeOffset.UtcNow - startTime).TotalMinutes < 1)
-			Task.Delay(100).Wait();
+			await Task.Delay(1000);
+
+		return retval;
 	}
 
 	private async Task<Dictionary<string, XmlDocument>> GetMrvaXmlDocs()
