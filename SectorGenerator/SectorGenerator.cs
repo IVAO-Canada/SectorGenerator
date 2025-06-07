@@ -1,4 +1,4 @@
-﻿#define OSM
+﻿#define _OSM
 using CIFPReader;
 
 using ManualAdjustments;
