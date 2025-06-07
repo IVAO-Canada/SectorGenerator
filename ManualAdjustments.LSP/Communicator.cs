@@ -5,7 +5,7 @@ using System.Net.Sockets;
 
 namespace ManualAdjustments.LSP;
 
-internal abstract class Communicator
+internal abstract class Communicator : IDisposable
 {
 	/// <summary>Invoked when a <see langword="string"/> is received from the client.</summary>
 	public event EventHandler<string>? MessageReceived;
@@ -26,10 +26,10 @@ internal abstract class Communicator
 
 	protected Task SetStream(Stream stream, CancellationToken token) => SetStream(stream, stream, token);
 
-	protected async Task SetStream(Stream inputStream, Stream outputStream, CancellationToken token)
+	protected Task SetStream(Stream inputStream, Stream outputStream, CancellationToken token)
 	{
 		_writer = new(outputStream);
-		await ReadFromStreamAsync(inputStream, token).ConfigureAwait(false);
+		return Task.Run(async () => await ReadFromStreamAsync(inputStream, token).ConfigureAwait(false), token);
 	}
 
 	private async Task ReadFromStreamAsync(Stream stream, CancellationToken token)
@@ -72,9 +72,11 @@ internal abstract class Communicator
 			MessageReceived?.Invoke(this, memOwner.Memory[..contentLength].ToString());
 		}
 	}
+
+	public abstract void Dispose();
 }
 
-internal class StdioCommunicator : Communicator, IDisposable
+internal class StdioCommunicator : Communicator
 {
 	private readonly CancellationTokenSource _inputLoopCancellation = new();
 	private readonly Task _inputLoop;
@@ -85,14 +87,14 @@ internal class StdioCommunicator : Communicator, IDisposable
 		_inputLoopCancellation.Token
 	);
 
-	public void Dispose()
+	public override void Dispose()
 	{
 		_inputLoopCancellation.Cancel();
 		_inputLoop.Wait();
 	}
 }
 
-internal class NamedPipeCommunicator : Communicator, IDisposable
+internal class NamedPipeCommunicator : Communicator
 {
 	readonly NamedPipeClientStream _client;
 
@@ -102,14 +104,14 @@ internal class NamedPipeCommunicator : Communicator, IDisposable
 		_client.Connect(TimeSpan.FromSeconds(2));
 	}
 
-	public void Dispose() => _client.Dispose();
+	public override void Dispose() => _client.Dispose();
 }
 
-internal class SocketCommunicator : Communicator, IDisposable
+internal class SocketCommunicator : Communicator
 {
 	readonly TcpClient _client = new();
 
 	public SocketCommunicator(ushort port) => _client.Connect(IPAddress.Loopback, port);
 
-	public void Dispose() => _client.Dispose();
+	public override void Dispose() => _client.Dispose();
 }

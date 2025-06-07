@@ -15,7 +15,10 @@ internal record InitializeRequestParams(
 {
 	public static string Method { get; } = "initialize";
 
-	public Task<ResponseMessage<InitializeResult>> HandleAsync() => throw new NotImplementedException();
+	public Task<ResponseMessage<InitializeResult>> HandleAsync(int id) => Task.FromResult(new ResponseMessage<InitializeResult>(
+		id,
+		InitializeResult.Default
+	));
 
 	internal record struct ClientInfoStruct(string Name, string? Version);
 }

@@ -7,7 +7,7 @@ internal interface IParams { };
 internal interface IRequestParams<T> : IParams where T : ResponseMessage
 {
 	public abstract static string Method { get; }
-	public abstract Task<T> HandleAsync();
+	public abstract Task<T> HandleAsync(int id);
 }
 
 internal interface INotificationParams : IParams
