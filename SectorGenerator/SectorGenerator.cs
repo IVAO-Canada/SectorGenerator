@@ -46,10 +46,16 @@ public class Program
 
 		bool IsInArtccC(string artcc, ICoordinate point) => artccBoundaries[artcc].Any(b => IsInPolygon(b, point));
 
-#if OSM
-		Console.Write("Queueing OSM & MRVA data downloads..."); await Console.Out.FlushAsync();
-		Osm? osm = null;
+		Console.Write("Queueing MRVA data downloads..."); await Console.Out.FlushAsync();
 		Mrva mrvas = new(); // Empty
+
+		Task mrvaLoader = Task.Run(async () => mrvas = await Mrva.LoadMrvasAsync());
+
+		Console.WriteLine(" Done!");
+
+#if OSM
+		Console.Write("Queueing OSM downloads..."); await Console.Out.FlushAsync();
+		Osm? osm = null;
 
 		Task osmLoader = Task.Run(async () => {
 			for (int iterations = 0; iterations < 3; ++iterations)
@@ -69,8 +75,6 @@ public class Program
 			if (osm is null)
 				throw new Exception("Could not download OSM data.");
 		});
-
-		Task mrvaLoader = Task.Run(async () => mrvas = await Mrva.LoadMrvasAsync());
 
 		Console.WriteLine(" Done!");
 #endif
