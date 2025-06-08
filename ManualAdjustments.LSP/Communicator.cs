@@ -9,6 +9,9 @@ internal abstract class Communicator : IDisposable
 {
 	/// <summary>Invoked when a <see langword="string"/> is received from the client.</summary>
 	public event EventHandler<string>? MessageReceived;
+
+	public bool Blocked { get; protected set; } = true;
+
 	private StreamWriter? _writer;
 
 	/// <summary>Sends a string to the client after adding the correct content headers.</summary>
@@ -38,6 +41,12 @@ internal abstract class Communicator : IDisposable
 
 		while (!token.IsCancellationRequested)
 		{
+			while (Blocked && !token.IsCancellationRequested)
+				await Task.Delay(100, token);
+
+			if (token.IsCancellationRequested)
+				return;
+
 			string contentType = "application/vscode-jsonrpc; charset=utf-8";
 			int contentLength = -1;
 
@@ -72,6 +81,9 @@ internal abstract class Communicator : IDisposable
 			MessageReceived?.Invoke(this, memOwner.Memory[..contentLength].ToString());
 		}
 	}
+
+	public void Block() => Blocked = true;
+	public void Unblock() => Blocked = false;
 
 	public abstract void Dispose();
 }

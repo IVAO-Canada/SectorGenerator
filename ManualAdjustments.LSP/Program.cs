@@ -1,9 +1,19 @@
 ﻿using ManualAdjustments.LSP;
+using ManualAdjustments.LSP.Messages;
 
 using System.CommandLine;
+using System.Text.Json;
+
+// Get on that STDIO right away, just in case!
+Communicator communicator = new StdioCommunicator();
 
 // Define command line settings.
 RootCommand commandLineCommand = new("LSP implementation for the SectorFile Manual Adjustment File system.");
+
+Option<bool> cliStdioOption = new(
+	"--stdio",
+	static () => true
+) { IsHidden = true };
 
 Option<string?> cliPipeOption = new(
 	"--pipe",
@@ -27,8 +37,7 @@ Option<int?> cliClientProcessId = new(
 
 commandLineCommand.AddOption(cliPipeOption);
 commandLineCommand.AddOption(cliPortOption);
-
-Communicator communicator = new StdioCommunicator();
+commandLineCommand.AddOption(cliStdioOption);
 
 // Process the actual command entered.
 commandLineCommand.SetHandler(ctx => {
@@ -59,3 +68,16 @@ if (cliRetCode != 0)
 	Environment.Exit(cliRetCode);
 	throw new System.Diagnostics.UnreachableException();
 }
+
+// Load all the IParams types into a usable dictionary.
+InjectionContext.Shared.LoadParamTypes();
+
+// Add the communicator so it can be pulled later where needed.
+InjectionContext.Shared.Add(communicator);
+
+// Add the JSON serialisation needs.
+InjectionContext.Shared.Add<MessageJsonConverter>();
+InjectionContext.Shared.Add<JsonSerializerOptions>(new(JsonSerializerDefaults.Web));
+InjectionContext.Shared.Get<JsonSerializerOptions>().Converters.Add(InjectionContext.Shared.Get<MessageJsonConverter>());
+
+await Server.RunAsync(communicator);

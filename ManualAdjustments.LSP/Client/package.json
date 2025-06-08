@@ -1,0 +1,37 @@
+{
+  "name": "aurora-maf",
+  "version": "0.0.0",
+  "publisher": "Wes Sleeman (644899)",
+  "description": "Aurora MAF File Server",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "preview": true,
+  "main": "./out/extension",
+  "contributes": {
+    "languages": [
+      {
+        "id": "adjustment",
+        "extensions": [".maf"],
+        "aliases": ["MAF", "Aurora MAF"],
+        "filenames": [],
+        "configuration": "./language-configuration.json"
+      }
+    ]
+  },
+
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -b",
+    "watch": "tsc -b -w"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "@types/vscode": "^1.100.0",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "glob": "^11.0.2",
+    "vscode-languageclient": "^9.0.1"
+  }
+}

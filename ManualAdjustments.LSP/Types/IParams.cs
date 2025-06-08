@@ -4,10 +4,10 @@ namespace ManualAdjustments.LSP.Types;
 
 internal interface IParams { };
 
-internal interface IRequestParams<T> : IParams where T : ResponseMessage
+internal interface IRequestParams : IParams
 {
 	public abstract static string Method { get; }
-	public abstract Task<T> HandleAsync(int id);
+	public abstract Task<ResponseMessage> HandleAsync(int id);
 }
 
 internal interface INotificationParams : IParams
