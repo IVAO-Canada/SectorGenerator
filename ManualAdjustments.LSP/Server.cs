@@ -1,4 +1,5 @@
 ﻿using ManualAdjustments.LSP.Messages;
+using ManualAdjustments.LSP.Types;
 
 using System.Collections.Concurrent;
 using System.Text.Json;
@@ -86,6 +87,13 @@ internal class Server : IDisposable, IResponseCollector
 					System.Diagnostics.Debug.WriteLine($"No handler for notification {note.Method}!");
 			}
 		}
+	}
+
+	public async Task SendNotificationAsync(NotificationMessage notification, JsonSerializerOptions? jsonOpts = null)
+	{
+		jsonOpts ??= InjectionContext.Shared.Get<JsonSerializerOptions>();
+		string msgJsonText = JsonSerializer.Serialize((Message)notification, jsonOpts);
+		await _client.SendAsync(msgJsonText);
 	}
 
 	public async Task<T> GetResponseAsync<T>() where T : ResponseMessage => (T)await GetResponseAsync(static resp => resp.GetType() == typeof(T));

@@ -9,6 +9,13 @@
   "preview": true,
   "main": "./out/extension",
   "contributes": {
+    "commands": [
+      {
+        "command": "aurora-maf.preview",
+        "title": "Open MAF preview",
+        "category": "Aurora MAF"
+      }
+    ],
     "languages": [
       {
         "id": "adjustment",

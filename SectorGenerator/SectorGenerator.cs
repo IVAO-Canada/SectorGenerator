@@ -107,7 +107,7 @@ public class Program
 			Console.Write($"{files.Length} files detected... "); await Console.Out.FlushAsync();
 
 			foreach (string filepath in files)
-				if (Parsing.Parse(File.ReadAllText(filepath)) is ParseResult<ManualAdjustment[]>.Success res)
+				if (Parsing.Parse(File.ReadAllText(filepath)) is ParseResult<ManualAdjustment[]> res)
 					manualAdjustments.AddRange(res.Result);
 
 			Console.WriteLine($"Done! Loaded {manualAdjustments.Count} adjustments.");

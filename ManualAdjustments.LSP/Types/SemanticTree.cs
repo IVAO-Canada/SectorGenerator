@@ -1,5 +1,7 @@
 ﻿using CIFPReader;
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace ManualAdjustments.LSP.Types.Semantics;
 
 internal abstract record SemanticTree(Range Range);
@@ -129,12 +131,14 @@ internal sealed record GeoDefinition(string Name, Color Colour, LspGeo[] Geos, R
 	public static GeoDefinition Construct(ParseResult<AddGeo> parse)
 	{
 		CIFP cifp = InjectionContext.Shared.Get<CIFP>();
-		var validChildren = parse.Children.Where(static c => c is ParseResult<IDrawableGeo>).Cast<ParseResult<IDrawableGeo>>();
+		LspGeo[] validChildren = parse.Children[1] is ParseResult<IDrawableGeo[]> geoRes
+			? [..geoRes.Children.Where(static c => c is ParseResult<IDrawableGeo>).Cast<ParseResult<IDrawableGeo>>().Select(c => LspGeo.Construct(c, cifp))]
+			: [];
 
 		return new(
 			parse.Result.Tag,
 			Color.ParseAurora(parse.Result.Colour),
-			[.. validChildren.Select(c => LspGeo.Construct(c, cifp))],
+			validChildren,
 			parse.Range
 		);
 	}
@@ -178,6 +182,17 @@ internal sealed record Location(ICoordinate Coordinate, Range Range)
 		parse.Result.Resolve(cifp),
 		parse.Range
 	);
+
+	public static bool TryConstruct(ParseResult<PossiblyResolvedWaypoint> parse, CIFP cifp, [NotNullWhen(true)] out Location? location)
+	{
+		location = null;
+
+		if (!parse.Result.TryResolve(cifp, out var coord))
+			return false;
+
+		location = new(coord, parse.Range);
+		return true;
+	}
 }
 
 internal sealed record LspGeo(IDrawableGeo Geo, Location[] References, Range Range)
@@ -189,12 +204,20 @@ internal sealed record LspGeo(IDrawableGeo Geo, Location[] References, Range Ran
 		if (parse.Children[0] is ParseResult<PossiblyResolvedWaypoint> symbolPoint)
 			references = [Location.Construct(symbolPoint, cifp)];
 		else if (parse.Children[0] is ParseResult<PossiblyResolvedWaypoint[]> connectorPoints)
-			references = [..
+		{
+			ParseResult<PossiblyResolvedWaypoint>[] wps = [..
 				connectorPoints.Children
 					.Where(static c => c is ParseResult<PossiblyResolvedWaypoint>)
 					.Cast<ParseResult<PossiblyResolvedWaypoint>>()
-					.Select(c => Location.Construct(c, cifp))
 			];
+
+			List<Location> refs = [];
+			foreach (var wp in wps)
+				if (Location.TryConstruct(wp, cifp, out var loc))
+					refs.Add(loc);
+
+			references = [.. refs];
+		}
 		else
 			throw new ArgumentException("Can't construct a GEO from a series of failed points!", nameof(parse));
 
@@ -204,4 +227,6 @@ internal sealed record LspGeo(IDrawableGeo Geo, Location[] References, Range Ran
 			parse.Range
 		);
 	}
+
+	public bool Resolve(CIFP cifp) => Geo.Resolve(cifp);
 }
