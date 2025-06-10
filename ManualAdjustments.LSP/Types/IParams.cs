@@ -17,3 +17,8 @@ internal interface INotificationParams : IParams
 }
 
 internal interface IResult : IParams { }
+
+internal interface IArrayResult<T> : IResult where T : IResult
+{
+	public T[] Items { get; init; }
+}

@@ -4,7 +4,7 @@ namespace ManualAdjustments;
 
 public static partial class Parsing
 {
-	public static ParseResult<ManualAdjustment[]> Parse(string input)
+	public static ParseResult Parse(string input)
 	{
 		Parser parser = new(input);
 

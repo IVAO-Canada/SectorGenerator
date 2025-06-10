@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace ManualAdjustments;
@@ -117,7 +118,10 @@ public static partial class Parsing
 /// <summary>Represents a location within a file.</summary>
 /// <param name="Line">The zero-based line number within the file.</param>
 /// <param name="Character">The zero-based character index within the <paramref name="Line"/>.</param>
-public record Position(int Line, int Character) : IComparable<Position>
+public record Position(
+	[property: JsonPropertyName("line")] int Line,
+	[property: JsonPropertyName("character")] int Character
+) : IComparable<Position>
 {
 	public int CompareTo(Position? other)
 	{
@@ -135,7 +139,10 @@ public record Position(int Line, int Character) : IComparable<Position>
 	public override string ToString() => $"{Line}:{Character}";
 }
 
-public record Range(Position Start, Position End) : IComparable<Range>, IComparable<Position>
+public record Range(
+	[property: JsonPropertyName("start")] Position Start,
+	[property: JsonPropertyName("end")] Position End
+) : IComparable<Range>, IComparable<Position>
 {
 	public int CompareTo(Range? other)
 	{

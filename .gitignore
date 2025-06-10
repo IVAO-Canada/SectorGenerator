@@ -399,3 +399,4 @@ FodyWeavers.xsd
 /SectorGenerator/docker
 /ManualAdjustments.LSP/Client/out
 /ManualAdjustments.LSP/Client/package-lock.json
+/SectorGenerator/ManualAdjustments/cifp

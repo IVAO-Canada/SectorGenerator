@@ -26,37 +26,41 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 
 		if (directory.StartsWith("s3://", StringComparison.InvariantCultureIgnoreCase))
 		{
-			SemaphoreSlim _continue = new(0);
+			directory = directory[5..];
+			string bucketName = directory.Split('/')[0];
+			string prefix = directory[bucketName.Length..].Trim('/') + '/';
+			directory = Environment.CurrentDirectory;
+			string outDir = Path.Combine(directory, "cifp");
 
-			Task t = Task.Run(async () =>
+			// Check if we need to pull everything or not.
+			if (!File.Exists(Path.Combine(outDir, "aerodrome.json")) || File.GetLastWriteTime(Path.Combine(outDir, "aerodrome.json")) < DateTime.Now.AddDays(-3))
 			{
-				directory = directory[5..];
-				string bucketName = directory.Split('/')[0];
-				string prefix = directory[bucketName.Length..];
 				AmazonS3Client s3 = new();
-				directory = Environment.CurrentDirectory;
 
 				try
 				{
-					foreach (S3Object s3obj in (await s3.ListObjectsV2Async(new() { BucketName = bucketName, Prefix = prefix })).S3Objects)
-					{
+					ListObjectsV2Response listResult = s3.ListObjectsV2Async(new() { BucketName = bucketName, Prefix = prefix }).Result;
+					SemaphoreSlim continueSem = new(1);
+					int threadsLeft = listResult.S3Objects.Count;
+
+					continueSem.Wait();
+					var loop = Parallel.ForEach(listResult.S3Objects, async s3obj => {
 						var getResp = await s3.GetObjectAsync(s3obj.BucketName, s3obj.Key);
 
-						string outpath = Path.Combine(directory, "cifp", Path.GetFileName(s3obj.Key));
+						string outpath = Path.Combine(outDir, Path.GetFileName(s3obj.Key));
 						if (File.Exists(outpath))
 							File.Delete(outpath);
 
 						await getResp.WriteResponseStreamToFileAsync(outpath, false, CancellationToken.None);
-					}
+
+						if (Interlocked.Decrement(ref threadsLeft) <= 0)
+							continueSem.Release();
+					});
+
+					continueSem.Wait(TimeSpan.FromMinutes(2));
 				}
 				catch (Exception ex) { }
-				finally
-				{
-					_continue.Release();
-				}
-			});
-
-			_continue.Wait();
+			}
 		}
 
 		directory = Path.GetFullPath(directory);
@@ -290,8 +294,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 
 		ConcurrentDictionary<string, HashSet<Procedure>> procs = [];
 
-		Task.WaitAll(Task.Run(() =>
-		{
+		Task.WaitAll(Task.Run(() => {
 			string procName = string.Empty, procAp = string.Empty;
 			List<AirwayFixLine> awAccumulator = [];
 			foreach (AirwayFixLine afl in awLines)
@@ -329,8 +332,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 
 				Airways[aw.Identifier].Add(aw);
 			}
-		}), Task.Run(() =>
-		{
+		}), Task.Run(() => {
 			string procName = string.Empty, procAp = string.Empty;
 			List<SIDLine> sidAccumulator = [];
 			foreach (SIDLine sl in sidSteps)
@@ -362,8 +364,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 					procs.TryAdd(sid.Name, []);
 				procs[sid.Name].Add(sid);
 			}
-		}), Task.Run(() =>
-		{
+		}), Task.Run(() => {
 			string procName = string.Empty, procAp = string.Empty;
 			List<STARLine> starAccumulator = [];
 			foreach (STARLine sl in starSteps)
@@ -395,8 +396,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 					procs.TryAdd(star.Name, []);
 				procs[star.Name].Add(star);
 			}
-		}), Task.Run(() =>
-		{
+		}), Task.Run(() => {
 			string procName = string.Empty, procAp = string.Empty;
 			List<ApproachLine> iapAccumulator = [];
 			foreach (ApproachLine al in iapSteps)

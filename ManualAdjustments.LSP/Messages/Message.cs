@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 
 namespace ManualAdjustments.LSP.Messages;
 
+[JsonConverter(typeof(MessageJsonConverter))]
 internal abstract record Message()
 {
 	[JsonPropertyName("jsonrpc")] public string JsonRpc { get; init; } = "2.0";
@@ -21,6 +22,7 @@ internal record RequestMessage(
 	public virtual Type? ParameterType => null;
 }
 
+[JsonConverter(typeof(GenericRequestMessageJsonConverter<>))]
 internal sealed record RequestMessage<T>(
 	int Id,
 	string Method,
@@ -36,6 +38,7 @@ internal record ResponseMessage(
 	[property: JsonPropertyName("error")] ResponseError? Error
 ) : Message();
 
+[JsonConverter(typeof(GenericResponseMessageJsonConverter<>))]
 internal sealed record ResponseMessage<T>(
 	int Id,
 	[property: JsonPropertyName("result")] T Result
@@ -45,12 +48,12 @@ internal record NotificationMessage(
 	[property: JsonPropertyName("method")] string Method
 ) : Message();
 
+[JsonConverter(typeof(GenericNotificationMessageJsonConverter<>))]
 internal sealed record NotificationMessage<T>(
 	string Method,
 	[property: JsonPropertyName("params")] T Params
 ) : NotificationMessage(Method) where T : INotificationParams;
 
-[JsonConverter(typeof(Message))]
 internal class MessageJsonConverter(ImmutableDictionary<string, Type> _paramTypes) : JsonConverter<Message>
 {
 	public override Message? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -217,7 +220,6 @@ internal class MessageJsonConverter(ImmutableDictionary<string, Type> _paramType
 	}
 }
 
-[JsonConverter(typeof(RequestMessage<>))]
 internal class GenericRequestMessageJsonConverter<T>() : JsonConverter<RequestMessage<T>> where T : IRequestParams
 {
 	public override RequestMessage<T>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -240,7 +242,6 @@ internal class GenericRequestMessageJsonConverter<T>() : JsonConverter<RequestMe
 	}
 }
 
-[JsonConverter(typeof(ResponseMessage<>))]
 internal class GenericResponseMessageJsonConverter<T>() : JsonConverter<ResponseMessage<T>> where T : IResult
 {
 	public override ResponseMessage<T>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -262,7 +263,6 @@ internal class GenericResponseMessageJsonConverter<T>() : JsonConverter<Response
 	}
 }
 
-[JsonConverter(typeof(NotificationMessage<>))]
 internal class GenericNotificationMessageJsonConverter<T>() : JsonConverter<NotificationMessage<T>> where T : INotificationParams
 {
 	public override NotificationMessage<T>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -281,5 +281,34 @@ internal class GenericNotificationMessageJsonConverter<T>() : JsonConverter<Noti
 		writer.WritePropertyName("params");
 		JsonSerializer.Serialize(writer, value.Params, options);
 		writer.WriteEndObject();
+	}
+}
+
+internal class ArrayResultJsonConverter<T, U> : JsonConverter<T> where T : IArrayResult<U>, new() where U : IResult
+{
+	public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+	{
+		if (reader.TokenType is not JsonTokenType.StartArray)
+			throw new JsonException();
+
+		List<U> items = [];
+
+		while (reader.Read() && reader.TokenType is not JsonTokenType.EndArray)
+			items.Add(JsonSerializer.Deserialize<U>(ref reader, options) ?? throw new JsonException());
+
+		if (reader.TokenType is not JsonTokenType.EndArray)
+			throw new JsonException();
+
+		return new() { Items = [.. items] };
+	}
+
+	public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)
+	{
+		writer.WriteStartArray();
+
+		foreach (U item in value.Items)
+			JsonSerializer.Serialize(writer, item, options);
+
+		writer.WriteEndArray();
 	}
 }

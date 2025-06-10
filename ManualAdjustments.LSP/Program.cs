@@ -75,6 +75,13 @@ InjectionContext.Shared.LoadParamTypes();
 // Add the communicator so it can be pulled later where needed.
 InjectionContext.Shared.Add(communicator);
 
+// Add the document synchroniser.
+InjectionContext.Shared.Add<DocumentManager>();
+
+// Add the FAA data.
+InjectionContext.Shared.Add(CIFPReader.CIFP.Load("s3://ivao-us/reduced/"));
+InjectionContext.Shared.Add(await FaaCycleData.LoadAsync());
+
 // Add the JSON serialisation needs.
 InjectionContext.Shared.Add<MessageJsonConverter>();
 InjectionContext.Shared.Add<JsonSerializerOptions>(new(JsonSerializerDefaults.Web));

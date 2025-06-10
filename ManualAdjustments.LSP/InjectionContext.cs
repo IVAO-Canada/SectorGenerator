@@ -84,6 +84,33 @@ internal class InjectionContext
 			{
 				PropertyInfo methodProp = type.GetProperty("Method", BindingFlags.Public | BindingFlags.Static) ?? throw new Exception();
 				method = (string)methodProp.GetValue(null)!;
+
+
+				if (type.GetInterface("IRequestParams") is not null)
+				{
+					// Register notification handler!
+					Type requestCheckType = typeof(RequestMessage<>).MakeGenericType(type);
+
+					AddHandler(method, req => {
+						if (req.GetType() != requestCheckType)
+							throw new ArgumentException($"Invalid params for {method} request handler!", nameof(req));
+
+						dynamic castReq = Convert.ChangeType(req, requestCheckType);
+						return castReq.Params.HandleAsync(req.Id);
+					});
+				}
+				else if (type.GetInterface("INotificationParams") is not null)
+				{
+					// Register notification handler!
+					Type notificationCheckType = typeof(NotificationMessage<>).MakeGenericType(type);
+
+					AddHandler(method, (NotificationMessage note) => {
+						if (note.GetType() != notificationCheckType)
+							throw new ArgumentException($"Invalid params for {method} notification handler!", nameof(note));
+
+						return ((dynamic)Convert.ChangeType(note, notificationCheckType)).Params.HandleAsync();
+					});
+				}
 			}
 			else
 				continue;

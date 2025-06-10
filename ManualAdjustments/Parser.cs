@@ -16,10 +16,10 @@ internal class Parser(string input)
 		  ? (_tweSet[key], key)
 		  : ([], -1);
 
-	public ParseResult<ManualAdjustment[]> ParseFile(int position, ImmutableStack<Twe.Token[]> synchroSets)
+	public ParseResult ParseFile(int position, ImmutableStack<Twe.Token[]> synchroSets)
 	{
 		var childSynchro = synchroSets.Push([DefType]);
-		List<ParseResult<ManualAdjustment>> children = [];
+		List<ParseResult> children = [];
 		List<ManualAdjustment> adjustments = [];
 
 		Range range = new(new(0, 0), new(0, 0));
@@ -29,7 +29,7 @@ internal class Parser(string input)
 			var result = ParseAdjustment(position, childSynchro);
 			children.Add(result);
 
-			if (result is ParseResult<ManualAdjustment>.Success sr)
+			if (result is ParseResult<ManualAdjustment> sr)
 				adjustments.Add(sr.Result);
 
 			position = result.NextIdx;
@@ -37,12 +37,17 @@ internal class Parser(string input)
 		}
 
 		if (position == -1 || position >= _tweSet.Keys.Max())
-			return new ParseResult<ManualAdjustment[]>.Success(position, range, [.._adHocFixes, .. adjustments], [.. children]);
+			return new ParseResult<ManualAdjustment[]>(
+				position,
+				range,
+				[.. _adHocFixes, .. adjustments.Where(static a => a is AddFix or AddVfrFix), .. adjustments.Where(static a => a is not (AddFix or AddVfrFix))],
+				[.. children]
+			);
 		else
-			return new ParseResult<ManualAdjustment[]>.Failed(position, range, [], [.. children]);
+			return new ParseResult.Failed(position, range, [], [.. children]);
 	}
 
-	public ParseResult<ManualAdjustment> ParseAdjustment(int position, ImmutableStack<Twe.Token[]> synchroSets)
+	public ParseResult ParseAdjustment(int position, ImmutableStack<Twe.Token[]> synchroSets)
 	{
 		(var twes, position) = Twes(position);
 		var childSynchro = synchroSets.Push([]);
@@ -69,7 +74,7 @@ internal class Parser(string input)
 				// Delete a fix.
 				advanceBy(delete.Lexeme.Length);
 
-				return new ParseResult<ManualAdjustment>.Success(
+				return new ParseResult<RemoveFix>(
 					position,
 					discriminator.Position.ExpandTo(fixName.Position).ExpandTo(colon.Position).ExpandTo(delete.Position),
 					new RemoveFix(new(null, new(fixName.Lexeme.Trim('"')), null)),
@@ -80,15 +85,22 @@ internal class Parser(string input)
 			// Add a fix.
 			ParseResult<PossiblyResolvedWaypoint> location = ParseLocation(position, childSynchro);
 
-			if (location is ParseResult<PossiblyResolvedWaypoint>.Success waypoint)
-				return new ParseResult<ManualAdjustment>.Success(
+			if (location is ParseResult<PossiblyResolvedWaypoint> waypoint)
+				return discriminator.Lexeme is "FIX"
+				? new ParseResult<AddFix>(
 					waypoint.NextIdx,
 					discriminator.Position.ExpandTo(fixName.Position).ExpandTo(colon.Position).ExpandTo(waypoint.Range),
-					discriminator.Lexeme is "FIX" ? new AddFix(fixName.Lexeme.Trim('"'), waypoint.Result) : new AddVfrFix(fixName.Lexeme.Trim('"'), waypoint.Result),
+					new(fixName.Lexeme.Trim('"'), waypoint.Result),
+					[waypoint]
+				)
+				: new ParseResult<AddVfrFix>(
+					waypoint.NextIdx,
+					discriminator.Position.ExpandTo(fixName.Position).ExpandTo(colon.Position).ExpandTo(waypoint.Range),
+					new(fixName.Lexeme.Trim('"'), waypoint.Result),
 					[waypoint]
 				);
 			else
-				return new ParseResult<ManualAdjustment>.Failed(
+				return new ParseResult.Failed(
 					location.NextIdx,
 					discriminator.Position.ExpandTo(fixName.Position).ExpandTo(colon.Position).ExpandTo(location.Range),
 					[],
@@ -116,17 +128,17 @@ internal class Parser(string input)
 				throw new NotImplementedException("TODO: Synchro");
 
 			advanceBy(colon.Lexeme.Length);
-			ParseResult<PossiblyResolvedWaypoint[]> locationResult = ParseLocationList(position, childSynchro);
+			ParseResult locationResult = ParseLocationList(position, childSynchro);
 
 			PossiblyResolvedWaypoint[] waypoints =
-				locationResult is ParseResult<PossiblyResolvedWaypoint[]>.Success s
+				locationResult is ParseResult<PossiblyResolvedWaypoint[]> s
 				? s.Result
 				: [];
 
-			return new ParseResult<ManualAdjustment>.Success(
+			return new ParseResult<AddAirway>(
 				locationResult.NextIdx,
 				discriminator.Position.ExpandTo(airwayTypeStr.Position).ExpandTo(routeName.Position).ExpandTo(colon.Position).ExpandTo(locationResult.Range),
-				new AddAirway(waypoints, airwayType, routeName.Lexeme.Trim('"')),
+				new(waypoints, airwayType, routeName.Lexeme.Trim('"')),
 				[locationResult]
 			);
 		}
@@ -141,17 +153,17 @@ internal class Parser(string input)
 				throw new NotImplementedException("TODO: Synchro");
 
 			advanceBy(colon.Lexeme.Length);
-			ParseResult<PossiblyResolvedWaypoint[]> locationResult = ParseLocationList(position, childSynchro);
+			ParseResult locationResult = ParseLocationList(position, childSynchro);
 
 			PossiblyResolvedWaypoint[] waypoints =
-				locationResult is ParseResult<PossiblyResolvedWaypoint[]>.Success s
+				locationResult is ParseResult<PossiblyResolvedWaypoint[]> s
 				? s.Result
 				: [];
 
-			return new ParseResult<ManualAdjustment>.Success(
+			return new ParseResult<AddVfrRoute>(
 				locationResult.NextIdx,
 				discriminator.Position.ExpandTo(routeName.Position).ExpandTo(colon.Position).ExpandTo(locationResult.Range),
-				new AddVfrRoute(routeName.Lexeme.Trim('"'), waypoints),
+				new(routeName.Lexeme.Trim('"'), waypoints),
 				[locationResult]
 			);
 		}
@@ -163,23 +175,25 @@ internal class Parser(string input)
 
 			advanceBy(geoName.Lexeme.Length);
 			string colour = "#FF999999";
+			ParseResult colourChild = new ParseResult.Failed(position, new(geoName.Position.End, geoName.Position.End), [], []);
 			if (twes.FirstOrDefault(static twe => twe.Type is Parameter) is Twe param)
 			{
 				advanceBy(param.Lexeme.Length);
 				colour = param.Lexeme[1..^1];
+				colourChild = new ParseResult<string>(position, param.Position, colour, []);
 			}
 
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
 				throw new NotImplementedException("TODO: Synchro");
 
 			advanceBy(colon.Lexeme.Length);
-			ParseResult<IDrawableGeo[]> geos = ParseGeoList(position, childSynchro);
+			ParseResult geos = ParseGeoList(position, childSynchro);
 
-			return new ParseResult<ManualAdjustment>.Success(
+			return new ParseResult<AddGeo>(
 				geos.NextIdx,
 				discriminator.Position.ExpandTo(geoName.Position).ExpandTo(colon.Position).ExpandTo(geos.Range),
-				new AddGeo(geoName.Lexeme.Trim('"'), colour, geos is ParseResult<IDrawableGeo[]>.Success gs ? gs.Result : []),
-				[geos]
+				new(geoName.Lexeme.Trim('"'), colour, geos is ParseResult<IDrawableGeo[]> gs ? gs.Result : []),
+				[colourChild, geos]
 			);
 		}
 		else if (discriminator.Lexeme is "PROC")
@@ -187,6 +201,13 @@ internal class Parser(string input)
 			// Define a procedure.
 			if (twes.FirstOrDefault(static twe => twe.Type is Airport) is not Twe airport)
 				throw new NotImplementedException("TODO: Synchro");
+
+			ParseResult<string> apParse = new(
+				position,
+				airport.Position,
+				airport.Lexeme,
+				[]
+			);
 
 			advanceBy(airport.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is ProcType) is not Twe procTypeStr)
@@ -203,6 +224,13 @@ internal class Parser(string input)
 			if (twes.FirstOrDefault(static twe => twe.Type is Name) is not Twe procName)
 				throw new NotImplementedException("TODO: Synchro");
 
+			ParseResult<string> procParse = new(
+				position,
+				procName.Position,
+				procName.Lexeme,
+				[]
+			);
+
 			advanceBy(procName.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
 				throw new NotImplementedException("TODO: Synchro");
@@ -212,28 +240,28 @@ internal class Parser(string input)
 			if (twes.FirstOrDefault(static twe => twe.Type is Delete) is Twe deletion)
 			{
 				advanceBy(deletion.Lexeme.Length);
-				return new ParseResult<ManualAdjustment>.Success(
+				return new ParseResult<RemoveProcedure>(
 					position,
 					intermediateProcRange.ExpandTo(deletion.Position),
-					new RemoveProcedure(airport.Lexeme, procType, procName.Lexeme),
-					[]
+					new(airport.Lexeme, procType, procName.Lexeme),
+					[apParse, procParse]
 				);
 			}
 
-			ParseResult<IDrawableGeo[]> geos = ParseGeoList(position, childSynchro);
+			ParseResult geos = ParseGeoList(position, childSynchro);
 
-			return new ParseResult<ManualAdjustment>.Success(
+			return new ParseResult<AddProcedure>(
 				geos.NextIdx,
 				intermediateProcRange.ExpandTo(geos.Range),
-				new AddProcedure(airport.Lexeme, procType, procName.Lexeme, geos is ParseResult<IDrawableGeo[]>.Success gs ? gs.Result : []),
-				[geos]
+				new(airport.Lexeme, procType, procName.Lexeme, geos is ParseResult<IDrawableGeo[]> gs ? gs.Result : []),
+				[apParse, procParse, geos]
 			);
 		}
 		else
 			throw new NotImplementedException();
 	}
 
-	public ParseResult<IDrawableGeo[]> ParseGeoList(int position, ImmutableStack<Twe.Token[]> synchroSets)
+	public ParseResult ParseGeoList(int position, ImmutableStack<Twe.Token[]> synchroSets)
 	{
 		(var twe, position) = Twes(position);
 		void advanceBy(int delta)
@@ -243,7 +271,7 @@ internal class Parser(string input)
 		}
 
 		Range range = new(new(int.MaxValue, int.MaxValue), new(int.MinValue, int.MinValue));
-		List<ParseResult<IDrawableGeo>> children = [];
+		List<ParseResult> children = [];
 
 		// Parse the GEOs, one-by-one.
 		while (twe.FirstOrDefault(static twe => twe.Type is Indent) is Twe indent)
@@ -275,7 +303,7 @@ internal class Parser(string input)
 				}
 
 				// Get the locations of the connector's points.
-				ParseResult<PossiblyResolvedWaypoint[]> possibleLocations = ParseLocationList(
+				ParseResult possibleLocations = ParseLocationList(
 					position,
 					synchroSets.Push([Indent])
 				);
@@ -288,7 +316,7 @@ internal class Parser(string input)
 
 				PossiblyResolvedWaypoint[] locations = [];
 
-				if (possibleLocations is ParseResult<PossiblyResolvedWaypoint[]>.Success successChild)
+				if (possibleLocations is ParseResult<PossiblyResolvedWaypoint[]> successChild)
 					locations = successChild.Result;
 
 				connectorRange = connectorRange.ExpandTo(possibleLocations.Range);
@@ -310,7 +338,7 @@ internal class Parser(string input)
 					_ => throw new NotImplementedException()
 				};
 
-				children.Add(new ParseResult<IDrawableGeo>.Success(
+				children.Add(new ParseResult<IDrawableGeo>(
 					position,
 					connectorRange,
 					connector,
@@ -350,10 +378,10 @@ internal class Parser(string input)
 					.ExpandTo(symbolType.Position)
 					.ExpandTo(possibleLocation.Range);
 
-				if (possibleLocation is not ParseResult<PossiblyResolvedWaypoint>.Success location)
+				if (possibleLocation is not ParseResult<PossiblyResolvedWaypoint> location)
 				{
 					// Can't even try to create the GEO without a centrepoint.
-					children.Add(new ParseResult<IDrawableGeo>.Failed(
+					children.Add(new ParseResult.Failed(
 						possibleLocation.NextIdx,
 						symbolRange,
 						[],
@@ -379,7 +407,7 @@ internal class Parser(string input)
 					_ => throw new NotImplementedException()
 				};
 
-				children.Add(new ParseResult<IDrawableGeo>.Success(
+				children.Add(new ParseResult<IDrawableGeo>(
 					position,
 					symbolRange,
 					symbol,
@@ -397,7 +425,7 @@ internal class Parser(string input)
 			Position pos = twe.IsEmpty ? new(0, 0) : twe.First().Position.Start;
 			range = range.ExpandTo(pos);
 
-			return new ParseResult<IDrawableGeo[]>.Failed(
+			return new ParseResult.Failed(
 				position,
 				range,
 				Corrections: [new Edit.Insertion(pos, "\tPOINT (0/0)")],
@@ -409,11 +437,11 @@ internal class Parser(string input)
 			// The list is good if there are children, even if those children aren't.
 
 			IEnumerable<IDrawableGeo> results = children
-				.Where(static c => c is ParseResult<IDrawableGeo>.Success)
-				.Cast<ParseResult<IDrawableGeo>.Success>()
+				.Where(static c => c is ParseResult<IDrawableGeo>)
+				.Cast<ParseResult<IDrawableGeo>>()
 				.Select(static r => r.Result);
 
-			return new ParseResult<IDrawableGeo[]>.Success(
+			return new ParseResult<IDrawableGeo[]>(
 				position,
 				range,
 				[.. results],
@@ -469,7 +497,7 @@ internal class Parser(string input)
 			};
 		}
 
-		return new ParseResult<PossiblyResolvedWaypoint>.Success(
+		return new ParseResult<PossiblyResolvedWaypoint>(
 			position,
 			range,
 			operatingPoint,
@@ -477,7 +505,7 @@ internal class Parser(string input)
 		);
 	}
 
-	public ParseResult<PossiblyResolvedWaypoint[]> ParseLocationList(int position, ImmutableStack<Twe.Token[]> synchroSets)
+	public ParseResult ParseLocationList(int position, ImmutableStack<Twe.Token[]> synchroSets)
 	{
 		List<ParseResult<PossiblyResolvedWaypoint>> children = [];
 		ImmutableStack<Twe.Token[]> childSynchro = synchroSets.Push([Name, Coordinate]);
@@ -493,7 +521,7 @@ internal class Parser(string input)
 		{
 			// A location list can't be empty.
 			Position pos = _tweSet.LastOrDefault(kvp => kvp.Key <= position).Value.FirstOrDefault()?.Position.Start ?? new(0, 0);
-			return new ParseResult<PossiblyResolvedWaypoint[]>.Failed(
+			return new ParseResult.Failed(
 				position,
 				new(pos, pos),
 				Corrections: [
@@ -511,15 +539,10 @@ internal class Parser(string input)
 				children.Max(static c => c.Range.End)!
 			);
 
-			IEnumerable<PossiblyResolvedWaypoint> results = children
-				.Where(static c => c is ParseResult<PossiblyResolvedWaypoint>.Success)
-				.Cast<ParseResult<PossiblyResolvedWaypoint>.Success>()
-				.Select(static r => r.Result);
-
-			return new ParseResult<PossiblyResolvedWaypoint[]>.Success(
+			return new ParseResult<PossiblyResolvedWaypoint[]>(
 				children.Any(static c => c.NextIdx is -1) ? -1 : children.Max(static c => c.NextIdx),
 				range,
-				[.. results],
+				[.. children.Select(static r => r.Result)],
 				[.. children]
 			);
 		}
@@ -529,25 +552,23 @@ internal class Parser(string input)
 public abstract record ParseResult(int NextIdx, Range Range, ParseResult[] Children)
 {
 	public abstract IEnumerable<Edit> Edits { get; }
-}
 
-public abstract record ParseResult<T>(int NextIdx, Range Range, ParseResult[] Children) : ParseResult(NextIdx, Range, Children)
-{
-	public sealed record Success(int NextIdx, Range Range, T Result, ParseResult[] Children) : ParseResult<T>(NextIdx, Range, Children)
-	{
-		public override IEnumerable<Edit> Edits => [.. Children.SelectMany(static c => c.Edits)];
-	}
 
-	public sealed record Failed(int NextIdx, Range Range, Edit[] Corrections, ParseResult[] Children) : ParseResult<T>(NextIdx, Range, Children)
+	public sealed record Failed(int NextIdx, Range Range, Edit[] Corrections, ParseResult[] Children) : ParseResult(NextIdx, Range, Children)
 	{
 		public override IEnumerable<Edit> Edits => [.. Corrections, .. Children.SelectMany(static c => c.Edits)];
 
-		public ParseResult<U>.Failed Recast<U>() => new(NextIdx, Range, Corrections, Children);
+		public Failed Recast<U>() => new(NextIdx, Range, Corrections, Children);
 
 		public Failed Extend(IEnumerable<Edit> additionalCorrections) => this with {
 			Corrections = [.. Corrections, .. additionalCorrections]
 		};
 	}
+}
+
+public sealed record ParseResult<T>(int NextIdx, Range Range, T Result, ParseResult[] Children) : ParseResult(NextIdx, Range, Children)
+{
+	public override IEnumerable<Edit> Edits => [.. Children.SelectMany(static c => c.Edits)];
 }
 
 public abstract record Edit()
