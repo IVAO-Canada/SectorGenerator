@@ -1155,6 +1155,29 @@ public class UnresolvedWaypoint(string name) : IProcedureEndpoint
 	public Navaid Resolve(Dictionary<string, HashSet<Navaid>> fixes, UnresolvedWaypoint? reference = null) =>
 		fixes.Concretize(Name, refString: reference?.Name);
 
+	public bool TryResolve(Dictionary<string, HashSet<ICoordinate>> fixes, [NotNullWhen(true)] out NamedCoordinate? coord) => TryResolve(fixes, out coord, new Coordinate(0, 0));
+	public bool TryResolve(Dictionary<string, HashSet<ICoordinate>> fixes, [NotNullWhen(true)] out NamedCoordinate? coord, Coordinate? reference = null)
+	{
+		if (Position?.Name(Name) is NamedCoordinate nc)
+		{
+			coord = nc;
+			return true;
+		}
+
+		return fixes.TryConcretize(Name, out coord, refCoord: reference);
+	}
+
+	public bool TryResolve(Dictionary<string, HashSet<ICoordinate>> fixes, [NotNullWhen(true)] out NamedCoordinate? coord, UnresolvedWaypoint? reference = null)
+	{
+		if (Position?.Name(Name) is NamedCoordinate nc)
+		{
+			coord = nc;
+			return true;
+		}
+
+		return fixes.TryConcretize(Name, out coord, refString: reference?.Name);
+	}
+
 	public bool IsConditionReached(PathTermination termination, (Coordinate position, Altitude altitude, dynamic? reference) context, decimal tolerance) =>
 		throw new Exception("Waypoint must be resolved.");
 
