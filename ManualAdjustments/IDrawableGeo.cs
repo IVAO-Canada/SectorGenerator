@@ -1,5 +1,7 @@
 ﻿using CIFPReader;
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace ManualAdjustments;
 
 public interface IDrawableGeo
@@ -15,11 +17,42 @@ public record struct PossiblyResolvedWaypoint(ICoordinate? Coordinate, Unresolve
 	{
 		if (Coordinate is ICoordinate cic) return cic;
 
+		if (FixName is UnresolvedWaypoint fnuwRw &&
+			fnuwRw.Name.Length > 7 && fnuwRw.Name[4..7] is "/RW" &&
+			cifp.Runways.TryGetValue(fnuwRw.Name[..4], out var rws) && rws.FirstOrDefault(rw => rw.Identifier == fnuwRw.Name[7..]) is Runway rw)
+			return rw.Endpoint;
+
 		if (FixName is UnresolvedWaypoint fnuw) return fnuw.Resolve(cifp.Fixes);
 
 		if (FixRadialDistance is UnresolvedFixRadialDistance frdud) return frdud.Resolve(cifp.Fixes, cifp.Navaids);
 
 		throw new NotImplementedException();
+	}
+
+	public readonly bool TryResolve(CIFP cifp, [NotNullWhen(true)] out ICoordinate? coord)
+	{
+		coord = null;
+
+		if (Coordinate is ICoordinate cic)
+			coord = cic;
+		else if (FixName is UnresolvedWaypoint fnuw)
+		{
+			if (fnuw.Name.Length > 7 && fnuw.Name[4..7] is "/RW" &&
+				cifp.Runways.TryGetValue(fnuw.Name[..4], out var rws) &&
+				rws.FirstOrDefault(rw => rw.Identifier == fnuw.Name[7..]) is Runway rw)
+			{
+				coord = rw.Endpoint;
+				return true;
+			}
+
+			bool res = fnuw.TryResolve(cifp.Fixes, out NamedCoordinate? nc);
+			coord = nc;
+			return res;
+		}
+		else if (FixRadialDistance is UnresolvedFixRadialDistance frdud)
+			coord = frdud.Resolve(cifp.Fixes, cifp.Navaids);
+
+		return coord is not null;
 	}
 }
 

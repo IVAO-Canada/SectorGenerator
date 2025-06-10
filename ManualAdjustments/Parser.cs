@@ -29,8 +29,10 @@ internal class Parser(string input)
 			var result = ParseAdjustment(position, childSynchro);
 			children.Add(result);
 
-			if (result is ParseResult<ManualAdjustment> sr)
-				adjustments.Add(sr.Result);
+			Type resultType = result.GetType().GetGenericTypeDefinition();
+
+			if (resultType.IsAssignableTo(typeof(ParseResult<>)))
+				adjustments.Add(((dynamic)result).Result);
 
 			position = result.NextIdx;
 			range = range.ExpandTo(result.Range);
