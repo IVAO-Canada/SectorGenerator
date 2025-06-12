@@ -1,4 +1,6 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using ManualAdjustments.LSP.Messages.Language;
+
+using System.Diagnostics.CodeAnalysis;
 
 using File = ManualAdjustments.LSP.Types.Semantics.File;
 
@@ -10,13 +12,22 @@ internal class DocumentManager
 	private readonly Dictionary<string, ParseResult> _documentParses = [];
 	private readonly Dictionary<string, File> _documentTrees = [];
 
-	public void Add(string uri, string text) => _documentText[uri] = text;
+	public void Add(string uri, string text)
+	{
+		_documentText[uri] = text;
+		GenerateDiagnostics(uri);
+	}
+
 	public void Update(string uri, string text)
 	{
 		_documentText[uri] = text;
 		_documentParses.Remove(uri);
 		_documentTrees.Remove(uri);
+		GenerateDiagnostics(uri);
 	}
+
+	private static void GenerateDiagnostics(string uri) =>
+		_ = PublishDiagnosticsNotificationParams.PublishAsync(uri);
 
 	public string GetText(string uri) => _documentText[uri];
 	public bool TryGetText(string uri, [NotNullWhen(true)] out string? text) => _documentText.TryGetValue(uri, out text);

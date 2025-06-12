@@ -8,23 +8,42 @@ namespace ManualAdjustments.LSP.Rendering;
 
 internal static class ProcedureRenderer
 {
-	private readonly static SKColor BACKGROUND = new(0, 0, 0);
-	private readonly static SKColor PRIMARY = new(0xFF, 0xFF, 0xFF);
+	private const decimal BUFFER = 0.15m;
 
-	public static string RenderGeosBase64(int width, int height, params LspGeo[] geos) => VectorRenderer.RenderBase64(width, height, Draw(width, height, geos));
+	// Colours: C_<colour>
+	private readonly static SKColor C_BACKGROUND = new(0, 0, 0);
+	private readonly static SKColor C_PRIMARY = new(0xFF, 0x00, 0x80);
+	private readonly static SKColor C_SECONDARY = new(0x99, 0x99, 0x99);
 
-	public static SKImage RenderGeos(int width, int height, params LspGeo[] geos) => VectorRenderer.Render(width, height, Draw(width, height, geos));
+	// Fills: P_F_<fill>
+	private readonly static SKPaint P_F_PRIMARY = new() { Color = C_PRIMARY, IsStroke = false };
+	private readonly static SKPaint P_F_SECONDARY = new() { Color = C_SECONDARY, IsStroke = false };
 
-	private static Action<SKCanvas> Draw(int width, int height, LspGeo[] geos) => canvas => {
-		canvas.Clear(BACKGROUND);
+	// Strokes: P_S_<stroke>
+	private readonly static SKPaint P_S_PRIMARY = new() { Color = C_PRIMARY, IsStroke = true, StrokeWidth = 2.5f, IsAntialias = true };
+	private readonly static SKPaint P_S_SECONDARY = new() { Color = C_SECONDARY, IsStroke = true, StrokeWidth = 1.5f, IsAntialias = true };
+
+	public static string RenderPngGeosBase64(int width, int height, CIFP cifp, params LspGeo[] geos) => VectorRenderer.RenderBase64(width, height, Draw(width, height, cifp, geos));
+
+	public static string RenderSvgGeosBase64(int width, int height, CIFP cifp, params LspGeo[] geos) => VectorRenderer.RenderSvgBase64(width, height, Draw(width, height, cifp, geos));
+
+	public static SKImage RenderGeos(int width, int height, CIFP cifp, params LspGeo[] geos) => VectorRenderer.Render(width, height, Draw(width, height, cifp, geos));
+
+	private static Action<SKCanvas> Draw(int width, int height, CIFP cifp, LspGeo[] geos) => canvas => {
+		canvas.Clear(C_BACKGROUND);
 		IDrawableGeo[] drawables = [..
-			geos.Select(static g => g.Geo)
+			geos.Where(g => g.Resolve(cifp)).Select(static g => g.Geo)
 		];
 
 		// Determine the bounding box.
 		decimal minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
 
-		foreach (Coordinate coord in drawables.SelectMany(static d => d.ReferencePoints))
+		foreach (ICoordinate coord in drawables.SelectMany(static d => (IEnumerable<ICoordinate>)[
+			..d.ReferencePoints,
+			..(d is GeoConnector gc ? gc.Points.Select(static p => p.Coordinate).Where(static c => c is not null).Cast<ICoordinate>()
+			 : d is GeoSymbol gs && gs.Centerpoint.Coordinate is ICoordinate cpCoord ? [cpCoord]
+			 : [])
+		]).DistinctBy(static coord => HashCode.Combine(coord.Latitude, coord.Longitude)))
 		{
 			if (coord.Latitude < minLat)
 				minLat = coord.Latitude;
@@ -37,27 +56,100 @@ internal static class ProcedureRenderer
 				maxLon = coord.Longitude;
 		}
 
-		minLat -= 0.1m;
-		maxLat += 0.1m;
-		minLon -= 0.1m;
-		maxLon += 0.1m;
+		decimal latPad = (maxLat - minLat) * BUFFER,
+				lonPad = (maxLon - minLon) * BUFFER;
+		minLat -= latPad;
+		maxLat += latPad;
+		minLon -= lonPad;
+		maxLon += lonPad;
 
-		// Get a naïve ratio.
-		decimal latHeight = maxLat - minLat, lonWidth = maxLon - minLon;
+		const float DEG_TO_RAD = MathF.Tau / 360f;
 
-		SKPoint convert(Coordinate coord) => new(
-			(float)((coord.Longitude - minLon) / lonWidth * width),
-			(float)((1 - (coord.Latitude - minLat) / latHeight) * height)
-		);
+		static float mercatorY(decimal latitude) =>
+			MathF.Log(MathF.Tan((float)latitude * DEG_TO_RAD) + 1 / MathF.Cos((float)latitude * DEG_TO_RAD));
 
+		float mercatorMinLat = mercatorY(minLat),
+			  mercatorMaxLat = mercatorY(maxLat),
+			  scaleX = width / (float)(maxLon - minLon),
+			  scaleY = height / (mercatorMaxLat - mercatorMinLat);
+
+		SKPoint convert(ICoordinate coord)
+		{
+			float x = (float)(coord.Longitude - minLon) * scaleX;
+			float y = height - ((mercatorY(coord.Latitude) - mercatorMinLat) * scaleY); // Invert y-axis
+
+			return new(x, y);
+		}
+
+		float canvasRotation = 0;
+		// Try to rotate mag north up if possible.
+		if (cifp.Aerodromes.Values.FirstOrDefault(ad =>
+									ad.Location.Latitude > minLat && ad.Location.Latitude < maxLat &&
+									ad.Location.Longitude < maxLon && ad.Location.Longitude > minLon) is Aerodrome rotCentreAp)
+			canvasRotation = (float)rotCentreAp.MagneticVariation;
+		else if (cifp.Navaids.Values.SelectMany(static v => v).FirstOrDefault(nav =>
+									nav.MagneticVariation is not null &&
+									nav.Position.Latitude > minLat && nav.Position.Latitude < maxLat &&
+									nav.Position.Longitude < maxLon && nav.Position.Longitude > minLon) is Navaid rotCentreNav)
+			canvasRotation = (float)rotCentreNav.MagneticVariation!;
+
+		canvas.RotateDegrees(canvasRotation, width / 2, height / 2);
+		SKFont font = SKFontManager.Default.MatchCharacter('K').ToFont(10f);
+
+		// Draw any on-screen navaids.
+		foreach (Navaid nav in cifp.Navaids.Values.SelectMany(static v => v).Where(nav =>
+									nav is not (NavaidILS or ILS) &&
+									nav.Position.Latitude > minLat && nav.Position.Latitude < maxLat &&
+									nav.Position.Longitude < maxLon && nav.Position.Longitude > minLon))
+		{
+			SKPoint location = convert(nav.Position);
+			canvas.Save();
+			canvas.RotateDegrees(-canvasRotation, location.X, location.Y);
+			canvas.DrawRect(location.X - 2.5f, location.Y - 2.5f, 5, 5, P_S_SECONDARY);
+			canvas.DrawText(nav.Identifier, location with { Y = location.Y - 5 }, SKTextAlign.Center, font, P_F_SECONDARY);
+			canvas.Restore();
+		}
+
+		// Draw the on-screen airports and their runways.
+		foreach (Aerodrome ap in cifp.Aerodromes.Values.Where(ad =>
+									ad.Location.Latitude > minLat && ad.Location.Latitude < maxLat &&
+									ad.Location.Longitude < maxLon && ad.Location.Longitude > minLon))
+		{
+			if (cifp.Runways.TryGetValue(ap.Identifier, out var rws))
+			{
+				// Yay! We found runways! Pair them up and draw them.
+				HashSet<string> processed = [];
+
+				foreach (var rw in rws)
+				{
+					if (processed.Contains(rw.Identifier) || rws.FirstOrDefault(oppo => oppo.Identifier == rw.OppositeIdentifier) is not Runway oppo)
+						continue;
+
+					processed.Add(oppo.Identifier);
+					canvas.DrawLine(convert(rw.Endpoint), convert(oppo.Endpoint), P_S_SECONDARY);
+				}
+			}
+
+			// Draw the airport dot/label itself.
+			SKPoint location = convert(ap.Location);
+			canvas.DrawCircle(location, 5, P_F_SECONDARY);
+			canvas.Save();
+			canvas.RotateDegrees(-canvasRotation, location.X, location.Y);
+			canvas.DrawText(ap.Identifier, location with { Y = location.Y - 10 }, SKTextAlign.Center, font, P_F_SECONDARY);
+			canvas.Restore();
+		}
+
+		HashSet<NamedCoordinate> namedPoints = [];
+
+		// Draw the actual proc/geo/whatever.
 		SKPath path = new();
 		foreach (IDrawableGeo geo in drawables)
 		{
 			bool lastBreak = true;
 
-			foreach (Coordinate? coordOpt in geo.Draw().Select(static c => c?.GetCoordinate()))
+			foreach (ICoordinate? coordOpt in geo.Draw())
 			{
-				if (coordOpt is not Coordinate coord)
+				if (coordOpt is not ICoordinate coord)
 				{
 					lastBreak = true;
 					continue;
@@ -70,8 +162,21 @@ internal static class ProcedureRenderer
 
 				lastBreak = false;
 			}
+
+			namedPoints.UnionWith(geo.ReferencePoints.Where(static c => c is NamedCoordinate).Cast<NamedCoordinate>());
 		}
 
-		canvas.DrawPath(path, new() { Color = PRIMARY, IsStroke = true, StrokeWidth = 1f });
+		canvas.DrawPath(path, P_S_PRIMARY);
+
+		// Draw any of the named points.
+		foreach (NamedCoordinate nc in namedPoints)
+		{
+			SKPoint location = convert(nc);
+			canvas.Save();
+			canvas.RotateDegrees(-canvasRotation, location.X, location.Y);
+			canvas.DrawText(nc.Name, location with { Y = location.Y - 10 }, SKTextAlign.Center, font, P_F_PRIMARY);
+			canvas.Restore();
+			canvas.DrawCircle(location, 3f, P_F_PRIMARY);
+		}
 	};
 }

@@ -8,7 +8,8 @@ public interface IDrawableGeo
 {
 	public bool Resolve(CIFP cifp);
 	public IEnumerable<ICoordinate?> Draw();
-	public Coordinate[] ReferencePoints { get; }
+	public Coordinate[] ReferenceCoordinates { get; }
+	public ICoordinate[] ReferencePoints { get; }
 }
 
 public record struct PossiblyResolvedWaypoint(ICoordinate? Coordinate, UnresolvedWaypoint? FixName, UnresolvedFixRadialDistance? FixRadialDistance)
@@ -17,14 +18,14 @@ public record struct PossiblyResolvedWaypoint(ICoordinate? Coordinate, Unresolve
 	{
 		if (Coordinate is ICoordinate cic) return cic;
 
+		if (FixRadialDistance is UnresolvedFixRadialDistance frdud) return frdud.Resolve(cifp.Fixes, cifp.Navaids);
+
 		if (FixName is UnresolvedWaypoint fnuwRw &&
 			fnuwRw.Name.Length > 7 && fnuwRw.Name[4..7] is "/RW" &&
 			cifp.Runways.TryGetValue(fnuwRw.Name[..4], out var rws) && rws.FirstOrDefault(rw => rw.Identifier == fnuwRw.Name[7..]) is Runway rw)
 			return rw.Endpoint;
 
 		if (FixName is UnresolvedWaypoint fnuw) return fnuw.Resolve(cifp.Fixes);
-
-		if (FixRadialDistance is UnresolvedFixRadialDistance frdud) return frdud.Resolve(cifp.Fixes, cifp.Navaids);
 
 		throw new NotImplementedException();
 	}
@@ -54,6 +55,12 @@ public record struct PossiblyResolvedWaypoint(ICoordinate? Coordinate, Unresolve
 
 		return coord is not null;
 	}
+
+	public override readonly string ToString() =>
+		(Coordinate is ICoordinate ic ? ic.ToString()
+		: FixRadialDistance is UnresolvedFixRadialDistance ufrd ? ufrd.ToString()
+		: FixName is UnresolvedWaypoint uw ? uw.ToString()
+		: "Undefined") ?? "Undefined";
 }
 
 public abstract record GeoSymbol(PossiblyResolvedWaypoint Centerpoint, decimal Size) : IDrawableGeo
@@ -78,7 +85,8 @@ public abstract record GeoSymbol(PossiblyResolvedWaypoint Centerpoint, decimal S
 
 	public abstract IEnumerable<ICoordinate?> Draw();
 
-	public Coordinate[] ReferencePoints => [_resolvedCenterpoint.GetCoordinate()];
+	public Coordinate[] ReferenceCoordinates => [_resolvedCenterpoint.GetCoordinate()];
+	public ICoordinate[] ReferencePoints => [_resolvedCenterpoint];
 
 	public sealed record Point(PossiblyResolvedWaypoint Centerpoint) : GeoSymbol(Centerpoint, 0)
 	{
@@ -216,6 +224,10 @@ public abstract record GeoConnector(PossiblyResolvedWaypoint[] Points) : IDrawab
 		try
 		{
 			_resolvedPoints = [.. Points.Select(p => p.Resolve(cifp))];
+
+			for (int idx = 0; idx < Points.Length; ++idx)
+				Points[idx] = Points[idx] with { Coordinate = _resolvedPoints[idx] };
+
 			return true;
 		}
 		catch { return false; }
@@ -223,11 +235,12 @@ public abstract record GeoConnector(PossiblyResolvedWaypoint[] Points) : IDrawab
 
 	public abstract IEnumerable<ICoordinate?> Draw();
 
-	public Coordinate[] ReferencePoints => [.. _resolvedPoints.Select(c => c.GetCoordinate())];
+	public Coordinate[] ReferenceCoordinates => [.. _resolvedPoints.Select(c => c.GetCoordinate())];
+	public ICoordinate[] ReferencePoints => [.. _resolvedPoints];
 
 	public sealed record Line(PossiblyResolvedWaypoint[] Points) : GeoConnector(Points)
 	{
-		public override IEnumerable<ICoordinate?> Draw() => _resolvedPoints;
+		public override IEnumerable<ICoordinate?> Draw() => ReferencePoints;
 	}
 
 	/// <param name="Size">STARS default 1nmi.</param>
@@ -242,11 +255,12 @@ public abstract record GeoConnector(PossiblyResolvedWaypoint[] Points) : IDrawab
 			foreach (var (from, to) in _resolvedPoints[..^1].Zip(_resolvedPoints[1..]))
 			{
 				if (from.GetCoordinate().GetBearingDistance(to.GetCoordinate()).bearing is not TrueCourse direction) continue;
-				Coordinate next;
+				ICoordinate next;
+				Coordinate toCoord = to.GetCoordinate();
 
-				for (Coordinate startPoint = from.GetCoordinate(); startPoint.DistanceTo(to.GetCoordinate()) > Size; startPoint = next)
+				for (ICoordinate startPoint = from; startPoint.GetCoordinate().DistanceTo(toCoord) > Size; startPoint = next)
 				{
-					next = startPoint.FixRadialDistance(direction, Math.Min(Size, startPoint.DistanceTo(to.GetCoordinate())));
+					next = startPoint.GetCoordinate().FixRadialDistance(direction, Size);
 
 					if (lastReturned)
 					{

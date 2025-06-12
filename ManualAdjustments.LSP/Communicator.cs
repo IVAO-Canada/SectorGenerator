@@ -13,6 +13,7 @@ internal abstract class Communicator : IDisposable
 	public bool Blocked { get; protected set; } = true;
 
 	private StreamWriter? _writer;
+	private SemaphoreSlim _sendSemaphore = new(1);
 
 	/// <summary>Sends a string to the client after adding the correct content headers.</summary>
 	/// <param name="message">The <see langword="string"/> to send to the client.</param>
@@ -21,10 +22,19 @@ internal abstract class Communicator : IDisposable
 		if (_writer is null)
 			throw new Exception("The stream must be set before attempting to send a message.");
 
-		await _writer.WriteLineAsync($"Content-Length: {System.Text.Encoding.UTF8.GetByteCount(message)}");
-		await _writer.WriteLineAsync();
-		await _writer.WriteAsync(message);
-		await _writer.FlushAsync();
+		await _sendSemaphore.WaitAsync();
+
+		try
+		{
+			await _writer.WriteLineAsync($"Content-Length: {System.Text.Encoding.UTF8.GetByteCount(message)}");
+			await _writer.WriteLineAsync();
+			await _writer.WriteAsync(message);
+			await _writer.FlushAsync();
+		}
+		finally
+		{
+			_sendSemaphore.Release();
+		}
 	}
 
 	protected Task SetStream(Stream stream, CancellationToken token) => SetStream(stream, stream, token);

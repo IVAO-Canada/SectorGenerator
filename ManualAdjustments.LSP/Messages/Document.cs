@@ -1,7 +1,14 @@
-﻿using ManualAdjustments.LSP.Types;
+﻿using CIFPReader;
+
+using ManualAdjustments.LSP.Messages.Language;
+using ManualAdjustments.LSP.Rendering;
+using ManualAdjustments.LSP.Types;
 using ManualAdjustments.LSP.Types.Documents;
+using ManualAdjustments.LSP.Types.Semantics;
 
 using System.Text.Json.Serialization;
+
+using File = ManualAdjustments.LSP.Types.Semantics.File;
 
 namespace ManualAdjustments.LSP.Messages;
 
@@ -25,10 +32,21 @@ internal record DidChangeTextDocumentNotificationParams(
 {
 	public static string Method => "textDocument/didChange";
 
-	public Task HandleAsync()
+	public async Task HandleAsync()
 	{
-		InjectionContext.Shared.Get<DocumentManager>().Update(TextDocument.Uri, ContentChanges[^1].Text);
-		return Task.CompletedTask;
+		DocumentManager manager = InjectionContext.Shared.Get<DocumentManager>();
+		manager.Update(TextDocument.Uri, ContentChanges[^1].Text);
+
+		if (manager.TryGetTree(TextDocument.Uri, out File? file))
+		{
+			LspGeo[] renderTargets = [.. file.Adjustments.SelectMany(static a => a is GeoDefinition g ? g.Geos : a is ProcedureDefinition p ? p.Geos : [])];
+			string svg = ProcedureRenderer.RenderSvgGeosBase64(800, 650, InjectionContext.Shared.Get<CIFP>(), renderTargets);
+
+			await InjectionContext.Shared.Get<Server>().SendNotificationAsync<ImagePreviewNotificationParams>(new(
+				ImagePreviewNotificationParams.Method,
+				new(svg)
+			));
+		}
 	}
 }
 

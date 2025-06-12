@@ -29,9 +29,9 @@ internal class Parser(string input)
 			var result = ParseAdjustment(position, childSynchro);
 			children.Add(result);
 
-			Type resultType = result.GetType().GetGenericTypeDefinition();
+			Type resultType = result.GetType();
 
-			if (resultType.IsAssignableTo(typeof(ParseResult<>)))
+			if (resultType.IsGenericType)
 				adjustments.Add(((dynamic)result).Result);
 
 			position = result.NextIdx;
@@ -54,9 +54,27 @@ internal class Parser(string input)
 		(var twes, position) = Twes(position);
 		var childSynchro = synchroSets.Push([]);
 		void advanceBy(int delta) => (twes, position) = Twes(position + delta);
+		void advanceTo(int pos) => (twes, position) = Twes(pos);
 
 		if (twes.FirstOrDefault(static twe => twe.Type is DefType) is not Twe discriminator)
-			throw new NotImplementedException("TODO: Synchro");
+		{
+			(bool shouldReturn, int newPos) = Synchro(position, synchroSets, DefType);
+			string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+			Range priorRange = twes.IsEmpty ? new(new(0, 0), new(0, 0)) : new(twes.First().Position.Start, twes.First().Position.Start);
+			advanceTo(newPos);
+
+			if (shouldReturn)
+				return new ParseResult.Failed(
+					position,
+					priorRange,
+					[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+					[]
+				);
+			else if (twes.FirstOrDefault(static twe => twe.Type is DefType) is Twe newDiscrim)
+				discriminator = newDiscrim;
+			else
+				throw new Exception("Synchro failed!");
+		}
 
 		advanceBy(discriminator.Lexeme.Length);
 
@@ -64,11 +82,44 @@ internal class Parser(string input)
 		{
 			// Add or delete a fix.
 			if (twes.FirstOrDefault(static twe => twe.Type is Name) is not Twe fixName)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Name);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						discriminator.Position,
+						[new Edit.Deletion(new(discriminator.Position.End, twes.FirstOrDefault()?.Position.Start ?? discriminator.Position.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Name) is Twe newFix)
+					fixName = newFix;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(fixName.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Colon);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				Range priorRange = discriminator.Position.ExpandTo(fixName.Position);
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						priorRange,
+						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Colon) is Twe newColon)
+					colon = newColon;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(colon.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Delete) is Twe delete)
@@ -85,7 +136,7 @@ internal class Parser(string input)
 			}
 
 			// Add a fix.
-			ParseResult<PossiblyResolvedWaypoint> location = ParseLocation(position, childSynchro);
+			ParseResult location = ParseLocation(position, childSynchro);
 
 			if (location is ParseResult<PossiblyResolvedWaypoint> waypoint)
 				return discriminator.Lexeme is "FIX"
@@ -113,7 +164,23 @@ internal class Parser(string input)
 		{
 			// Define an airway.
 			if (twes.FirstOrDefault(static twe => twe.Type is AirwayType) is not Twe airwayTypeStr)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, AirwayType);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						discriminator.Position,
+						[new Edit.Deletion(new(discriminator.Position.End, twes.FirstOrDefault()?.Position.Start ?? discriminator.Position.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is AirwayType) is Twe newAwType)
+					airwayTypeStr = newAwType;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(airwayTypeStr.Lexeme.Length);
 			AddAirway.AirwayType airwayType = airwayTypeStr.Lexeme switch {
@@ -123,11 +190,45 @@ internal class Parser(string input)
 			};
 
 			if (twes.FirstOrDefault(static twe => twe.Type is Name) is not Twe routeName)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Name);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				Range priorRange = discriminator.Position.ExpandTo(airwayTypeStr.Position);
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						priorRange,
+						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Name) is Twe newRteName)
+					routeName = newRteName;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(routeName.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Colon);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				Range priorRange = discriminator.Position.ExpandTo(airwayTypeStr.Position).ExpandTo(routeName.Position);
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						priorRange,
+						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Colon) is Twe newColon)
+					colon = newColon;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(colon.Lexeme.Length);
 			ParseResult locationResult = ParseLocationList(position, childSynchro);
@@ -148,11 +249,44 @@ internal class Parser(string input)
 		{
 			// Define a VFR route.
 			if (twes.FirstOrDefault(static twe => twe.Type is Name) is not Twe routeName)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Name);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						discriminator.Position,
+						[new Edit.Deletion(new(discriminator.Position.End, twes.FirstOrDefault()?.Position.Start ?? discriminator.Position.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Name) is Twe newRteName)
+					routeName = newRteName;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(routeName.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Colon);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				Range priorRange = discriminator.Position.ExpandTo(routeName.Position);
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						priorRange,
+						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Colon) is Twe newColon)
+					colon = newColon;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(colon.Lexeme.Length);
 			ParseResult locationResult = ParseLocationList(position, childSynchro);
@@ -173,11 +307,27 @@ internal class Parser(string input)
 		{
 			// Define a GEO/video map.
 			if (twes.FirstOrDefault(static twe => twe.Type is Name) is not Twe geoName)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Name);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						discriminator.Position,
+						[new Edit.Deletion(new(discriminator.Position.End, twes.FirstOrDefault()?.Position.Start ?? discriminator.Position.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Name) is Twe newGeoName)
+					geoName = newGeoName;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(geoName.Lexeme.Length);
 			string colour = "#FF999999";
-			ParseResult colourChild = new ParseResult.Failed(position, new(geoName.Position.End, geoName.Position.End), [], []);
+			ParseResult<string> colourChild = new(position, new(geoName.Position.End, geoName.Position.End), colour, []);
 			if (twes.FirstOrDefault(static twe => twe.Type is Parameter) is Twe param)
 			{
 				advanceBy(param.Lexeme.Length);
@@ -186,7 +336,24 @@ internal class Parser(string input)
 			}
 
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Colon);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				Range priorRange = discriminator.Position.ExpandTo(geoName.Position);
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						priorRange,
+						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Colon) is Twe newColon)
+					colon = newColon;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(colon.Lexeme.Length);
 			ParseResult geos = ParseGeoList(position, childSynchro);
@@ -202,7 +369,23 @@ internal class Parser(string input)
 		{
 			// Define a procedure.
 			if (twes.FirstOrDefault(static twe => twe.Type is Airport) is not Twe airport)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Airport);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						discriminator.Position,
+						[new Edit.Deletion(new(discriminator.Position.End, twes.FirstOrDefault()?.Position.Start ?? discriminator.Position.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Airport) is Twe newAirport)
+					airport = newAirport;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			ParseResult<string> apParse = new(
 				position,
@@ -213,7 +396,24 @@ internal class Parser(string input)
 
 			advanceBy(airport.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is ProcType) is not Twe procTypeStr)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, ProcType);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				Range priorRange = discriminator.Position.ExpandTo(airport.Position);
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						priorRange,
+						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is ProcType) is Twe newProcTypeStr)
+					procTypeStr = newProcTypeStr;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(procTypeStr.Lexeme.Length);
 			AddProcedure.ProcedureType procType = procTypeStr.Lexeme switch {
@@ -224,7 +424,24 @@ internal class Parser(string input)
 			};
 
 			if (twes.FirstOrDefault(static twe => twe.Type is Name) is not Twe procName)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Name);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				Range priorRange = discriminator.Position.ExpandTo(airport.Position);
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						priorRange,
+						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Name) is Twe newProcName)
+					procName = newProcName;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			ParseResult<string> procParse = new(
 				position,
@@ -235,7 +452,24 @@ internal class Parser(string input)
 
 			advanceBy(procName.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
-				throw new NotImplementedException("TODO: Synchro");
+			{
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Colon);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				Range priorRange = discriminator.Position.ExpandTo(airport.Position);
+				advanceTo(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						priorRange,
+						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[]
+					);
+				else if (twes.FirstOrDefault(static twe => twe.Type is Colon) is Twe newColon)
+					colon = newColon;
+				else
+					throw new Exception("Synchro failed!");
+			}
 
 			advanceBy(colon.Lexeme.Length);
 			Range intermediateProcRange = discriminator.Position.ExpandTo(airport.Position).ExpandTo(procTypeStr.Position).ExpandTo(colon.Position);
@@ -369,7 +603,7 @@ internal class Parser(string input)
 				}
 
 				// Get the location of the symbol.
-				ParseResult<PossiblyResolvedWaypoint> possibleLocation = ParseLocation(
+				ParseResult possibleLocation = ParseLocation(
 					position,
 					synchroSets.Push([Indent])
 				);
@@ -417,8 +651,20 @@ internal class Parser(string input)
 				));
 			}
 			else
+			{
 				// No clue!
-				throw new NotImplementedException("TODO: Synchro");
+				(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Indent);
+				string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+				(twe, position) = Twes(newPos);
+
+				if (shouldReturn)
+					return new ParseResult.Failed(
+						position,
+						indent.Position,
+						[new Edit.Deletion(new(indent.Position.End, twe.FirstOrDefault()?.Position.Start ?? indent.Position.End))],
+						[]
+					);
+			}
 		}
 
 		if (children.Count is 0)
@@ -452,11 +698,28 @@ internal class Parser(string input)
 		}
 	}
 
-	public ParseResult<PossiblyResolvedWaypoint> ParseLocation(int position, ImmutableStack<Twe.Token[]> _)
+	public ParseResult ParseLocation(int position, ImmutableStack<Twe.Token[]> synchroSets)
 	{
 		(var twes, position) = Twes(position);
 		if (twes.FirstOrDefault(static twe => twe.Type is Name or Coordinate) is not Twe firstSection)
-			throw new NotImplementedException("TODO: Synchro");
+		{
+			(bool shouldReturn, int newPos) = Synchro(position, synchroSets, Name, Coordinate);
+			string skippedSegment = position is -1 || newPos is -1 ? "" : input[position..newPos];
+			Range startRange = twes.IsEmpty ? new(new(0, 0), new(0, 0)) : new(twes.First().Position.Start, twes.First().Position.Start);
+			(twes, position) = Twes(newPos);
+
+			if (shouldReturn)
+				return new ParseResult.Failed(
+					position,
+					startRange,
+					[new Edit.Deletion(startRange)],
+					[]
+				);
+			else if (twes.FirstOrDefault(static twe => twe.Type is Name or Coordinate) is Twe newFirstSection)
+				firstSection = newFirstSection;
+			else
+				throw new Exception("Synchro failed!");
+		}
 
 		Range range = firstSection.Position;
 
@@ -469,8 +732,8 @@ internal class Parser(string input)
 
 		position += firstSection.Lexeme.Length;
 		(twes, position) = Twes(position);
-		// If it was a name, check if a coordinate def follows.
-		if (firstSection.Type is Name && twes.FirstOrDefault(static twe => twe.Type is Coordinate) is Twe coordDef)
+		// If it was a name, check if a coordinate def follows WITHOUT A SPACE.
+		if (firstSection.Type is Name && twes.FirstOrDefault(static twe => twe.Type is Coordinate) is Twe coordDef && firstSection.Position.End == coordDef.Position.Start)
 		{
 			// Add the definition in for later.
 			operatingPoint = Parsing.ParseWaypoint(firstSection.Lexeme, coordDef.Lexeme, null);
@@ -509,7 +772,7 @@ internal class Parser(string input)
 
 	public ParseResult ParseLocationList(int position, ImmutableStack<Twe.Token[]> synchroSets)
 	{
-		List<ParseResult<PossiblyResolvedWaypoint>> children = [];
+		List<ParseResult> children = [];
 		ImmutableStack<Twe.Token[]> childSynchro = synchroSets.Push([Name, Coordinate]);
 
 		for ((var twes, position) = Twes(position); twes.Any(static twe => twe.Type is Name or Coordinate); (twes, position) = Twes(position))
@@ -522,7 +785,7 @@ internal class Parser(string input)
 		if (children.Count is 0)
 		{
 			// A location list can't be empty.
-			Position pos = _tweSet.LastOrDefault(kvp => kvp.Key <= position).Value.FirstOrDefault()?.Position.Start ?? new(0, 0);
+			Position pos = position is -1 ? new(0, 0) : _tweSet.LastOrDefault(kvp => kvp.Key <= position).Value.FirstOrDefault()?.Position.Start ?? new(0, 0);
 			return new ParseResult.Failed(
 				position,
 				new(pos, pos),
@@ -544,10 +807,36 @@ internal class Parser(string input)
 			return new ParseResult<PossiblyResolvedWaypoint[]>(
 				children.Any(static c => c.NextIdx is -1) ? -1 : children.Max(static c => c.NextIdx),
 				range,
-				[.. children.Select(static r => r.Result)],
+				[.. children.Where(static c => c is ParseResult<PossiblyResolvedWaypoint>).Cast<ParseResult<PossiblyResolvedWaypoint>>().Select(static r => r.Result)],
 				[.. children]
 			);
 		}
+	}
+
+	public (bool ShouldReturn, int NewPosition) Synchro(int position, ImmutableStack<Twe.Token[]> synchroSets, params Twe.Token[] expected)
+	{
+		// Set up for a synchro check.
+		(var twes, position) = Twes(position);
+		HashSet<Twe.Token> tokens = [.. twes.Select(static twe => twe.Type)];
+		int endPoint = _tweSet.Keys.Max();
+
+		// Eat the fewest tokens possible.
+		while (position >= 0 && position <= endPoint)
+		{
+			if (tokens.Overlaps(expected))
+				// Found a match! Yay! No return!
+				return (false, position);
+			else if (synchroSets.Any(tokens.Overlaps))
+				// Ah well. Looks like we've gotta go back up the stack.
+				return (true, position);
+
+			// No luck; advance and try again.
+			(twes, position) = Twes(position + 1);
+			tokens = [.. twes.Select(static twe => twe.Type)];
+		}
+
+		// EOF. Pop and return the flag of doom.
+		return (true, -1);
 	}
 }
 

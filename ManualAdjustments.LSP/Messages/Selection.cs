@@ -5,9 +5,6 @@ using ManualAdjustments.LSP.Types;
 using ManualAdjustments.LSP.Types.Documents;
 using ManualAdjustments.LSP.Types.Semantics;
 
-using SkiaSharp;
-
-using System.Reflection.Metadata;
 using System.Text.Json.Serialization;
 
 namespace ManualAdjustments.LSP.Messages;
@@ -26,41 +23,32 @@ internal record SelectionChangedNotificationParams(
 			return;
 
 		Server server = InjectionContext.Shared.Get<Server>();
+		CIFP cifp = InjectionContext.Shared.Get<CIFP>();
+		LspGeo[]? geos = null;
 
-		if (file.Adjustments.FirstOrDefault(a => a.Range.CompareTo(Position) is 0) is not Adjustment adjustment)
-			// Nothing going. Leave it there.
-			return;
+		if (file.Adjustments.FirstOrDefault(a => a.Range.CompareTo(Position) is 0) is not Adjustment adjustment) { }
+		// Nothing going. Leave it there. Skip and move on.
 
-		if (adjustment is GeoDefinition geoDef)
-		{
+		else if (adjustment is GeoDefinition geoDef)
 			// A geo! Now we're talking. :)
-			CIFP cifp = InjectionContext.Shared.Get<CIFP>();
-
-			foreach (var geo in geoDef.Geos)
-				geo.Resolve(cifp);
-
-			string base64Data = ProcedureRenderer.RenderGeosBase64(800, 600, geoDef.Geos);
-
-			await server.SendNotificationAsync(new NotificationMessage<ImagePreviewNotificationParams>(
-				ImagePreviewNotificationParams.Method,
-				new(base64Data)
-			));
-		}
+			geos = geoDef.Geos;
 		else if (adjustment is ProcedureDefinition procDef)
-		{
 			// A geo! Now we're talking. :)
-			CIFP cifp = InjectionContext.Shared.Get<CIFP>();
+			geos = procDef.Geos;
 
-			foreach (var geo in procDef.Geos)
-				geo.Resolve(cifp);
-
-			string base64Data = ProcedureRenderer.RenderGeosBase64(800, 600, procDef.Geos);
-
-			await server.SendNotificationAsync(new NotificationMessage<ImagePreviewNotificationParams>(
-				ImagePreviewNotificationParams.Method,
-				new(base64Data)
-			));
+		if (geos is null)
+		{
+			// Nothing in particular selected. Just render it all!
+			LspGeo[] renderTargets = [.. file.Adjustments.SelectMany(static a => a is GeoDefinition g ? g.Geos : a is ProcedureDefinition p ? p.Geos : [])];
+			geos = renderTargets;
 		}
+
+		string base64Data = ProcedureRenderer.RenderSvgGeosBase64(800, 600, cifp, geos);
+
+		await server.SendNotificationAsync<ImagePreviewNotificationParams>(new(
+			ImagePreviewNotificationParams.Method,
+			new(base64Data)
+		));
 	}
 }
 

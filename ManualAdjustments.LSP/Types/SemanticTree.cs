@@ -132,8 +132,10 @@ internal sealed record GeoDefinition(string Name, Color Colour, LspGeo[] Geos, R
 	{
 		CIFP cifp = InjectionContext.Shared.Get<CIFP>();
 		LspGeo[] validChildren = parse.Children[1] is ParseResult<IDrawableGeo[]> geoRes
-			? [..geoRes.Children.Where(static c => c is ParseResult<IDrawableGeo>).Cast<ParseResult<IDrawableGeo>>().Select(c => LspGeo.Construct(c, cifp))]
-			: [];
+			? [..geoRes.Children.Where(static c =>
+					c is ParseResult<IDrawableGeo> pr && pr.Children.Any(static c => c is ParseResult<PossiblyResolvedWaypoint> or ParseResult<PossiblyResolvedWaypoint[]>)
+				).Cast<ParseResult<IDrawableGeo>>().Select(c => LspGeo.Construct(c, cifp))
+			] : [];
 
 		return new(
 			parse.Result.Tag,

@@ -548,7 +548,7 @@ US/{artcc};US/labels;US/geos;US/polygons;US/procedures;US/navaids;US/mvas;US/vid
 			if (!Directory.Exists(artccFolder))
 				Directory.CreateDirectory(artccFolder);
 
-			string[] applicableVideoMaps = [.. videoMaps.Where(kvp => kvp.Value.Drawables.Any(g => g.ReferencePoints.Any(p => IsInArtccC(artcc, p)))).Select(kvp => kvp.Key)];
+			string[] applicableVideoMaps = [.. videoMaps.Where(kvp => kvp.Value.Drawables.Any(g => g.ReferenceCoordinates.Any(p => IsInArtccC(artcc, p)))).Select(kvp => kvp.Key)];
 
 			// Colours
 			string defineBlock = $@"[DEFINE]

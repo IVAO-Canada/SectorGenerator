@@ -22,10 +22,10 @@ internal record struct Color(
 
 		auroraColour = auroraColour.TrimStart('#');
 		return new(
-			Alpha: Fix(auroraColour[..2]),
-			Red: Fix(auroraColour[2..4]),
-			Green: Fix(auroraColour[4..6]),
-			Blue: Fix(auroraColour[6..])
+			Alpha: auroraColour.Length is 8 ? Fix(auroraColour[..2]) : 0xFF,
+			Red: Fix(auroraColour[^6..^4]),
+			Green: Fix(auroraColour[^4..^2]),
+			Blue: Fix(auroraColour[^2..])
 		);
 	}
 

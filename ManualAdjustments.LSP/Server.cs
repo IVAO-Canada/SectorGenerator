@@ -89,6 +89,9 @@ internal class Server : IDisposable, IResponseCollector
 		}
 	}
 
+	public Task SendNotificationAsync<T>(NotificationMessage<T> notification, JsonSerializerOptions? jsonOpts = null) where T : INotificationParams =>
+		SendNotificationAsync((NotificationMessage)notification, jsonOpts);
+
 	public async Task SendNotificationAsync(NotificationMessage notification, JsonSerializerOptions? jsonOpts = null)
 	{
 		jsonOpts ??= InjectionContext.Shared.Get<JsonSerializerOptions>();
