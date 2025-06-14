@@ -1,6 +1,4 @@
-﻿using Amazon.S3;
-
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
@@ -44,6 +42,9 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 			{
 				HttpClient client = new();
 				int complete = 0;
+
+				if (!Directory.Exists(outDir))
+					Directory.CreateDirectory(outDir);
 
 				Parallel.ForEach(filenames, async fp => {
 					using FileStream file = File.Create(Path.Combine(outDir, fp));

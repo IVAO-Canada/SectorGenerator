@@ -28,7 +28,10 @@ export function activate(context: ExtensionContext) {
 			transport: TransportKind.pipe
 		},
 		debug: {
-			command: 'C:\\Users\\westo\\OneDrive\\Flying\\IVAO\\SectorUtils\\ManualAdjustments.LSP\\bin\\Debug\\net9.0\\maf-lsp.exe',
+			command: 'dotnet',
+			args: [
+				'C:\\Users\\westo\\OneDrive\\Flying\\IVAO\\SectorUtils\\ManualAdjustments.LSP\\bin\\Debug\\net9.0\\maf-lsp.dll'
+			],
 			options: {
 				cwd: context.extensionPath,
 				env: {

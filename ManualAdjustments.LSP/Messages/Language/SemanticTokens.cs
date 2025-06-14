@@ -148,7 +148,8 @@ internal record SemanticTokensRequestParams(
 				yield return innerToken;
 		}
 		#endregion
-		else throw new ArgumentException("Unknown adjustment type.", nameof(adjustment));
+		// Unknown. Probably an incomplete file! :)
+		else yield break;
 	}
 }
 
