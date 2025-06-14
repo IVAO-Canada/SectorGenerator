@@ -19,10 +19,10 @@ internal record InitializeRequestParams(
 		// Trigger the others to register.
 		OtherLifecycleMethods.Register();
 
-	public Task<ResponseMessage> HandleAsync(int id) => Task.FromResult((ResponseMessage)new ResponseMessage<InitializeResult>(
-		id,
-		InitializeResult.Default
-	));
+	public Task<ResponseMessage> HandleAsync(int id) => Task.FromResult<ResponseMessage>(new ResponseMessage<InitializeResult>(
+			id,
+			InitializeResult.Default
+		));
 
 	internal record struct ClientInfoStruct(string Name, string? Version);
 }
@@ -36,8 +36,12 @@ internal record InitializeResult(
 		new() {
 			// TODO: Add capabilities as required.
 			["textDocumentSync"] = 1, // Full synchronisation.
-			["colorProvider"] = true, // Colours offered.
+			["colorProvider"] = true, // Colour swatches offered.
 			["hoverProvider"] = true, // Some things can get tooltips on hover.
+			["semanticTokensProvider"] = new {          // Semantic token highlighting.
+				legend = SemanticTokensLegend.Default,  // Semantic token highlighting.
+				full = true,                            // Semantic token highlighting.
+			},                                          // Semantic token highlighting.
 		},
 		new("Manual Adjustment File LSP Server", null)
 	);

@@ -3,6 +3,7 @@ using ManualAdjustments.LSP.Messages;
 
 using System.CommandLine;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 // Get on that STDIO right away, just in case!
 Communicator communicator = new StdioCommunicator();

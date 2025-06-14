@@ -35,7 +35,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 			// Check if we need to pull everything or not.
 			if (!File.Exists(Path.Combine(outDir, "aerodrome.json")) || File.GetLastWriteTime(Path.Combine(outDir, "aerodrome.json")) < DateTime.Now.AddDays(-3))
 			{
-				AmazonS3Client s3 = new();
+				AmazonS3Client s3 = new("0000", "0000");
 
 				try
 				{

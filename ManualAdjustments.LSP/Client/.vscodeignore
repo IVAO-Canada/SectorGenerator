@@ -1,0 +1,3 @@
+**/*.ts
+**/tsconfig.json
+azure-devops-pat.txt

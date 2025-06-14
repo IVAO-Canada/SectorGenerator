@@ -1,7 +1,7 @@
 {
   "name": "aurora-maf",
-  "version": "0.0.0",
-  "publisher": "Wes Sleeman (644899)",
+  "version": "1.0.0",
+  "publisher": "wes-ivao-644899",
   "description": "Aurora MAF File Server",
   "engines": {
     "vscode": "^1.75.0"
@@ -26,6 +26,9 @@
       }
     ]
   },
+  "sponsor": {
+    "url": "https://ko-fi.com/wsleeman"
+  },
 
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -34,7 +37,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.30",
-    "@types/vscode": "^1.100.0",
+    "@types/vscode": "^1.75.0",
     "typescript": "^5.8.3"
   },
   "dependencies": {

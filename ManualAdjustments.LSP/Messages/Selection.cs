@@ -11,7 +11,7 @@ namespace ManualAdjustments.LSP.Messages;
 
 internal record SelectionChangedNotificationParams(
 	[property: JsonPropertyName("textDocument")] TextDocumentIdentifier TextDocument,
-	[property: JsonPropertyName("position")] Position Position
+	[property: JsonPropertyName("positions")] Position[] Positions
 ) : INotificationParams
 {
 	public static string Method => "$/selectionChanged";
@@ -26,24 +26,32 @@ internal record SelectionChangedNotificationParams(
 		CIFP cifp = InjectionContext.Shared.Get<CIFP>();
 		LspGeo[]? geos = null;
 
-		if (file.Adjustments.FirstOrDefault(a => a.Range.CompareTo(Position) is 0) is not Adjustment adjustment) { }
+		Adjustment[] adjustments = [.. file.Adjustments.Where(a => Positions.Any(p => a.Range.CompareTo(p) is 0))];
 		// Nothing going. Leave it there. Skip and move on.
 
-		else if (adjustment is GeoDefinition geoDef)
-			// A geo! Now we're talking. :)
-			geos = geoDef.Geos;
-		else if (adjustment is ProcedureDefinition procDef)
-			// A geo! Now we're talking. :)
-			geos = procDef.Geos;
+		static LspGeo fromPoints(Location[] points) => new(
+			new GeoConnector.Line([..points.Select(static p => new PossiblyResolvedWaypoint(p.Coordinate, null, null))]),
+			points,
+			points.Length is 0
+			? new(new(0, 0), new(0, 0))
+			: new(points.Min(static p => p.Range.Start)!, points.Max(static p => p.Range.End)!)
+		);
 
-		if (geos is null)
-		{
-			// Nothing in particular selected. Just render it all!
-			LspGeo[] renderTargets = [.. file.Adjustments.SelectMany(static a => a is GeoDefinition g ? g.Geos : a is ProcedureDefinition p ? p.Geos : [])];
-			geos = renderTargets;
-		}
+		static IEnumerable<LspGeo> pullGeos(Adjustment a) => a switch {
+			GeoDefinition geo => geo.Geos,
+			ProcedureDefinition proc => proc.Geos,
+			AirwayDefinition awy => [fromPoints(awy.Points)],
+			VfrRouteDefinition vrr => [fromPoints(vrr.Points)],
+			_ => []
+		};
 
-		string base64Data = ProcedureRenderer.RenderSvgGeosBase64(800, 600, cifp, geos);
+		geos = [..
+			adjustments.Length is 0
+			? file.Adjustments.SelectMany(pullGeos)	// Nothing in particular selected. Just render it all!
+			: adjustments.SelectMany(pullGeos)		// Collate all the requested GEOs.
+		];
+
+		string base64Data = ProcedureRenderer.RenderSvgGeosBase64(800, 650, cifp, geos);
 
 		await server.SendNotificationAsync<ImagePreviewNotificationParams>(new(
 			ImagePreviewNotificationParams.Method,

@@ -2,6 +2,7 @@
 using System.IO.Pipes;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection.Metadata;
 
 namespace ManualAdjustments.LSP;
 
@@ -13,7 +14,7 @@ internal abstract class Communicator : IDisposable
 	public bool Blocked { get; protected set; } = true;
 
 	private StreamWriter? _writer;
-	private SemaphoreSlim _sendSemaphore = new(1);
+	private readonly SemaphoreSlim _sendSemaphore = new(1);
 
 	/// <summary>Sends a string to the client after adding the correct content headers.</summary>
 	/// <param name="message">The <see langword="string"/> to send to the client.</param>
@@ -41,7 +42,7 @@ internal abstract class Communicator : IDisposable
 
 	protected Task SetStream(Stream inputStream, Stream outputStream, CancellationToken token)
 	{
-		_writer = new(outputStream);
+		_writer = new(outputStream) { AutoFlush = false };
 		return Task.Run(async () => await ReadFromStreamAsync(inputStream, token).ConfigureAwait(false), token);
 	}
 
@@ -119,21 +120,45 @@ internal class StdioCommunicator : Communicator
 internal class NamedPipeCommunicator : Communicator
 {
 	readonly NamedPipeClientStream _client;
+	private readonly CancellationTokenSource _inputLoopCancellation = new();
+	private readonly Task _inputLoop;
 
 	public NamedPipeCommunicator(string pipeName)
 	{
-		_client = new(".", pipeName, PipeDirection.InOut);
-		_client.Connect(TimeSpan.FromSeconds(2));
+		string host = ".";
+		if (pipeName.StartsWith(@"\\"))
+		{
+			host = pipeName[2..].Split('\\')[0];
+			pipeName = pipeName[(2 + host.Length)..];
+
+			if (!pipeName.StartsWith(@"\pipe\"))
+				throw new NotImplementedException();
+
+			pipeName = pipeName[@"\pipe\".Length..];
+		}
+
+		_client = new(host, pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+		_client.Connect();
+		_inputLoop = SetStream(_client, _inputLoopCancellation.Token);
 	}
 
-	public override void Dispose() => _client.Dispose();
+	public override void Dispose()
+	{
+		_inputLoopCancellation.Dispose();
+		_client.Dispose();
+		_inputLoop.Wait();
+	}
 }
 
 internal class SocketCommunicator : Communicator
 {
 	readonly TcpClient _client = new();
 
-	public SocketCommunicator(ushort port) => _client.Connect(IPAddress.Loopback, port);
+	public SocketCommunicator(ushort port)
+	{
+		Console.WriteLine($"Connecting to socket on port {port}.");
+		_client.Connect(IPAddress.Loopback, port);
+	}
 
 	public override void Dispose() => _client.Dispose();
 }

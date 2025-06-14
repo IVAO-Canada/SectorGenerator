@@ -21,12 +21,18 @@ export function activate(context: ExtensionContext) {
 
 	const serverOptions: ServerOptions = {
 		run: {
-			command: 'C:\\Users\\westo\\OneDrive\\Flying\\IVAO\\SectorUtils\\ManualAdjustments.LSP\\bin\\Release\\net9.0\\ManualAdjustments.LSP.exe',
+			command: 'maf-lsp',
 			transport: TransportKind.pipe
 		},
 		debug: {
-			command: 'C:\\Users\\westo\\OneDrive\\Flying\\IVAO\\SectorUtils\\ManualAdjustments.LSP\\bin\\Debug\\net9.0\\ManualAdjustments.LSP.exe',
-			transport: TransportKind.stdio
+			command: 'dotnet',
+			args: [
+				'watch',
+				'--project',
+				'C:\\Users\\westo\\OneDrive\\Flying\\IVAO\\SectorUtils\\ManualAdjustments.LSP',
+				'--'
+			],
+			transport: TransportKind.pipe
 		}
 	};
 
@@ -56,7 +62,7 @@ export function activate(context: ExtensionContext) {
 
 		client.sendNotification('$/selectionChanged', {
 			textDocument: { uri: e.textEditor.document.uri.toString() },
-			position: e.selections[0].start
+			positions: Array(...e.selections.map(s => s.start))
 		})
 	}, null, context.subscriptions)
 

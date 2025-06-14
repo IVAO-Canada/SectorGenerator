@@ -16,6 +16,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ManualAdjustments", "Manual
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ManualAdjustments.LSP", "ManualAdjustments.LSP\ManualAdjustments.LSP.csproj", "{7CE066BB-7151-4F41-9319-4C661F8C1C9D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReverseFrd", "ReverseFrd\ReverseFrd.csproj", "{901771C6-6314-4B93-90CC-64EEC299FA38}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -38,6 +40,10 @@ Global
 		{7CE066BB-7151-4F41-9319-4C661F8C1C9D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7CE066BB-7151-4F41-9319-4C661F8C1C9D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7CE066BB-7151-4F41-9319-4C661F8C1C9D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{901771C6-6314-4B93-90CC-64EEC299FA38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{901771C6-6314-4B93-90CC-64EEC299FA38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{901771C6-6314-4B93-90CC-64EEC299FA38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{901771C6-6314-4B93-90CC-64EEC299FA38}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

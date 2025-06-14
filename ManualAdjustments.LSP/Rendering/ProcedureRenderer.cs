@@ -63,22 +63,48 @@ internal static class ProcedureRenderer
 		minLon -= lonPad;
 		maxLon += lonPad;
 
-		const float DEG_TO_RAD = MathF.Tau / 360f;
+		static float mercatorX(decimal longitude) =>
+			(float)(longitude + 180) / 360;
 
 		static float mercatorY(decimal latitude) =>
-			MathF.Log(MathF.Tan((float)latitude * DEG_TO_RAD) + 1 / MathF.Cos((float)latitude * DEG_TO_RAD));
+			(float)(latitude + 90) / 180;
+			// MathF.Log(MathF.Tan((float)latitude * DEG_TO_RAD) + 1 / MathF.Cos((float)latitude * DEG_TO_RAD));
 
 		float mercatorMinLat = mercatorY(minLat),
 			  mercatorMaxLat = mercatorY(maxLat),
-			  scaleX = width / (float)(maxLon - minLon),
-			  scaleY = height / (mercatorMaxLat - mercatorMinLat);
+			  mercatorMinLon = mercatorX(minLon),
+			  mercatorMaxLon = mercatorX(maxLon),
+			  scaleDownX = 1f / (mercatorMaxLon - mercatorMinLon),
+			  scaleDownY = 1f / (mercatorMaxLat - mercatorMinLat),
+			  minScale = MathF.Min(scaleDownX, scaleDownY);
 
-		SKPoint convert(ICoordinate coord)
+		int scaleUp = Math.Min(width, height),
+			padX = (width - scaleUp) / 2,
+			padY = (height - scaleUp) / 2;
+
+		float yTop = (minScale / scaleDownY + 1) * 0.5f,
+			  xLeft = (1 - (mercatorMaxLon - mercatorMinLon) * minScale) * 0.5f;
+
+		float minX = 1, maxX = 0, minY = 1, maxY = 0;
+
+		SKPoint convert(ICoordinate coord, bool track = true)
 		{
-			float x = (float)(coord.Longitude - minLon) * scaleX;
-			float y = height - ((mercatorY(coord.Latitude) - mercatorMinLat) * scaleY); // Invert y-axis
+			// Scale the coordinate down into a [0,1] mercator space.
+			float x = xLeft + ((mercatorX(coord.Longitude) - mercatorMinLon) * minScale);
+			float y = yTop - ((mercatorY(coord.Latitude) - mercatorMinLat) * minScale); // Invert y-axis
 
-			return new(x, y);
+			if (track)
+			{
+				minX = MathF.Min(minX, x);
+				maxX = MathF.Max(maxX, x);
+				minY = MathF.Min(minY, y);
+				maxY = MathF.Max(maxY, y);
+			}
+
+			return new(
+				x * scaleUp + padX,
+				y * scaleUp + padY
+			);
 		}
 
 		float canvasRotation = 0;
@@ -102,7 +128,7 @@ internal static class ProcedureRenderer
 									nav.Position.Latitude > minLat && nav.Position.Latitude < maxLat &&
 									nav.Position.Longitude < maxLon && nav.Position.Longitude > minLon))
 		{
-			SKPoint location = convert(nav.Position);
+			SKPoint location = convert(nav.Position, false);
 			canvas.Save();
 			canvas.RotateDegrees(-canvasRotation, location.X, location.Y);
 			canvas.DrawRect(location.X - 2.5f, location.Y - 2.5f, 5, 5, P_S_SECONDARY);
@@ -126,12 +152,12 @@ internal static class ProcedureRenderer
 						continue;
 
 					processed.Add(oppo.Identifier);
-					canvas.DrawLine(convert(rw.Endpoint), convert(oppo.Endpoint), P_S_SECONDARY);
+					canvas.DrawLine(convert(rw.Endpoint, false), convert(oppo.Endpoint, false), P_S_SECONDARY);
 				}
 			}
 
 			// Draw the airport dot/label itself.
-			SKPoint location = convert(ap.Location);
+			SKPoint location = convert(ap.Location, false);
 			canvas.DrawCircle(location, 5, P_F_SECONDARY);
 			canvas.Save();
 			canvas.RotateDegrees(-canvasRotation, location.X, location.Y);

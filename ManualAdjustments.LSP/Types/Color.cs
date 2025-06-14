@@ -9,6 +9,20 @@ internal record struct Color(
 	[property: JsonPropertyName("alpha")] float Alpha
 )
 {
+	public static bool TryParseAurora(string auroraColour, out Color color)
+	{
+		bool failedValidation = auroraColour.Length is < 6 or > 9 ||
+			(auroraColour.Length % 2 is 1 && (auroraColour[0] is not '#' || !auroraColour[1..].All(char.IsAsciiHexDigit))) ||
+			(auroraColour.Length % 2 is 0 && !auroraColour.All(char.IsAsciiHexDigit));
+
+		if (failedValidation)
+			color = new();
+		else
+			color = ParseAurora(auroraColour);
+
+		return !failedValidation;
+	}
+
 	public static Color ParseAurora(string auroraColour)
 	{
 		auroraColour = auroraColour.Trim();

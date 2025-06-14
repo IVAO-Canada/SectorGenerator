@@ -19,10 +19,11 @@ internal record DocumentColorRequestParams(
 			if (parse is not ParseResult<AddGeo> geoParse)
 				return (ColorInformation[])[];
 
-			if (geoParse.Children[0] is ParseResult<string> colourParse)
-				return [
-					new(colourParse.Range, Color.ParseAurora(colourParse.Result))
-				];
+			if (geoParse.Literals[2].Lexeme.Length > 2 && Color.TryParseAurora(geoParse.Literals[2].Lexeme[1..^1], out Color auroraColour))
+				return [new(
+					new(geoParse.Literals[2].Position.Start + 1, geoParse.Literals[2].Position.End - 1),
+					auroraColour
+				)];
 			else
 				return [];
 		});

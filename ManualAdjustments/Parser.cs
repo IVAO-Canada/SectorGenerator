@@ -43,14 +43,16 @@ internal class Parser(string input)
 				position,
 				range,
 				[.. _adHocFixes, .. adjustments.Where(static a => a is AddFix or AddVfrFix), .. adjustments.Where(static a => a is not (AddFix or AddVfrFix))],
+				[],
 				[.. children]
 			);
 		else
-			return new ParseResult.Failed(position, range, [], [.. children]);
+			return new ParseResult.Failed(position, range, [], [], [.. children]);
 	}
 
 	public ParseResult ParseAdjustment(int position, ImmutableStack<Twe.Token[]> synchroSets)
 	{
+		List<Twe> literals = [];
 		(var twes, position) = Twes(position);
 		var childSynchro = synchroSets.Push([]);
 		void advanceBy(int delta) => (twes, position) = Twes(position + delta);
@@ -68,6 +70,7 @@ internal class Parser(string input)
 					position,
 					priorRange,
 					[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+					[],
 					[]
 				);
 			else if (twes.FirstOrDefault(static twe => twe.Type is DefType) is Twe newDiscrim)
@@ -76,6 +79,7 @@ internal class Parser(string input)
 				throw new Exception("Synchro failed!");
 		}
 
+		literals.Add(discriminator);
 		advanceBy(discriminator.Lexeme.Length);
 
 		if (discriminator.Lexeme is "FIX" or "VFRFIX")
@@ -92,6 +96,7 @@ internal class Parser(string input)
 						position,
 						discriminator.Position,
 						[new Edit.Deletion(new(discriminator.Position.End, twes.FirstOrDefault()?.Position.Start ?? discriminator.Position.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Name) is Twe newFix)
@@ -100,6 +105,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(fixName);
 			advanceBy(fixName.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
 			{
@@ -113,6 +119,7 @@ internal class Parser(string input)
 						position,
 						priorRange,
 						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Colon) is Twe newColon)
@@ -121,6 +128,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(colon);
 			advanceBy(colon.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Delete) is Twe delete)
 			{
@@ -131,6 +139,7 @@ internal class Parser(string input)
 					position,
 					discriminator.Position.ExpandTo(fixName.Position).ExpandTo(colon.Position).ExpandTo(delete.Position),
 					new RemoveFix(new(null, new(fixName.Lexeme.Trim('"')), null)),
+					[..literals, delete],
 					[]
 				);
 			}
@@ -144,12 +153,14 @@ internal class Parser(string input)
 					waypoint.NextIdx,
 					discriminator.Position.ExpandTo(fixName.Position).ExpandTo(colon.Position).ExpandTo(waypoint.Range),
 					new(fixName.Lexeme.Trim('"'), waypoint.Result),
+					[..literals],
 					[waypoint]
 				)
 				: new ParseResult<AddVfrFix>(
 					waypoint.NextIdx,
 					discriminator.Position.ExpandTo(fixName.Position).ExpandTo(colon.Position).ExpandTo(waypoint.Range),
 					new(fixName.Lexeme.Trim('"'), waypoint.Result),
+					[..literals],
 					[waypoint]
 				);
 			else
@@ -157,6 +168,7 @@ internal class Parser(string input)
 					location.NextIdx,
 					discriminator.Position.ExpandTo(fixName.Position).ExpandTo(colon.Position).ExpandTo(location.Range),
 					[],
+					[..literals],
 					[location]
 				);
 		}
@@ -174,6 +186,7 @@ internal class Parser(string input)
 						position,
 						discriminator.Position,
 						[new Edit.Deletion(new(discriminator.Position.End, twes.FirstOrDefault()?.Position.Start ?? discriminator.Position.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is AirwayType) is Twe newAwType)
@@ -182,6 +195,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(airwayTypeStr);
 			advanceBy(airwayTypeStr.Lexeme.Length);
 			AddAirway.AirwayType airwayType = airwayTypeStr.Lexeme switch {
 				"HIGH" => AddAirway.AirwayType.High,
@@ -201,6 +215,7 @@ internal class Parser(string input)
 						position,
 						priorRange,
 						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Name) is Twe newRteName)
@@ -209,6 +224,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(routeName);
 			advanceBy(routeName.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
 			{
@@ -222,6 +238,7 @@ internal class Parser(string input)
 						position,
 						priorRange,
 						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Colon) is Twe newColon)
@@ -230,6 +247,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(colon);
 			advanceBy(colon.Lexeme.Length);
 			ParseResult locationResult = ParseLocationList(position, childSynchro);
 
@@ -242,6 +260,7 @@ internal class Parser(string input)
 				locationResult.NextIdx,
 				discriminator.Position.ExpandTo(airwayTypeStr.Position).ExpandTo(routeName.Position).ExpandTo(colon.Position).ExpandTo(locationResult.Range),
 				new(waypoints, airwayType, routeName.Lexeme.Trim('"')),
+				[.. literals],
 				[locationResult]
 			);
 		}
@@ -259,6 +278,7 @@ internal class Parser(string input)
 						position,
 						discriminator.Position,
 						[new Edit.Deletion(new(discriminator.Position.End, twes.FirstOrDefault()?.Position.Start ?? discriminator.Position.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Name) is Twe newRteName)
@@ -267,6 +287,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(routeName);
 			advanceBy(routeName.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
 			{
@@ -280,6 +301,7 @@ internal class Parser(string input)
 						position,
 						priorRange,
 						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Colon) is Twe newColon)
@@ -288,6 +310,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(colon);
 			advanceBy(colon.Lexeme.Length);
 			ParseResult locationResult = ParseLocationList(position, childSynchro);
 
@@ -300,6 +323,7 @@ internal class Parser(string input)
 				locationResult.NextIdx,
 				discriminator.Position.ExpandTo(routeName.Position).ExpandTo(colon.Position).ExpandTo(locationResult.Range),
 				new(routeName.Lexeme.Trim('"'), waypoints),
+				[..literals],
 				[locationResult]
 			);
 		}
@@ -317,6 +341,7 @@ internal class Parser(string input)
 						position,
 						discriminator.Position,
 						[new Edit.Deletion(new(discriminator.Position.End, twes.FirstOrDefault()?.Position.Start ?? discriminator.Position.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Name) is Twe newGeoName)
@@ -325,14 +350,14 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(geoName);
 			advanceBy(geoName.Lexeme.Length);
 			string colour = "#FF999999";
-			ParseResult<string> colourChild = new(position, new(geoName.Position.End, geoName.Position.End), colour, []);
 			if (twes.FirstOrDefault(static twe => twe.Type is Parameter) is Twe param)
 			{
 				advanceBy(param.Lexeme.Length);
 				colour = param.Lexeme[1..^1];
-				colourChild = new ParseResult<string>(position, param.Position, colour, []);
+				literals.Add(param);
 			}
 
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
@@ -347,6 +372,7 @@ internal class Parser(string input)
 						position,
 						priorRange,
 						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Colon) is Twe newColon)
@@ -355,6 +381,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(colon);
 			advanceBy(colon.Lexeme.Length);
 			ParseResult geos = ParseGeoList(position, childSynchro);
 
@@ -362,7 +389,8 @@ internal class Parser(string input)
 				geos.NextIdx,
 				discriminator.Position.ExpandTo(geoName.Position).ExpandTo(colon.Position).ExpandTo(geos.Range),
 				new(geoName.Lexeme.Trim('"'), colour, geos is ParseResult<IDrawableGeo[]> gs ? gs.Result : []),
-				[colourChild, geos]
+				[..literals],
+				[geos]
 			);
 		}
 		else if (discriminator.Lexeme is "PROC")
@@ -379,6 +407,7 @@ internal class Parser(string input)
 						position,
 						discriminator.Position,
 						[new Edit.Deletion(new(discriminator.Position.End, twes.FirstOrDefault()?.Position.Start ?? discriminator.Position.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Airport) is Twe newAirport)
@@ -387,13 +416,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
-			ParseResult<string> apParse = new(
-				position,
-				airport.Position,
-				airport.Lexeme,
-				[]
-			);
-
+			literals.Add(airport);
 			advanceBy(airport.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is ProcType) is not Twe procTypeStr)
 			{
@@ -407,6 +430,7 @@ internal class Parser(string input)
 						position,
 						priorRange,
 						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is ProcType) is Twe newProcTypeStr)
@@ -415,6 +439,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(procTypeStr);
 			advanceBy(procTypeStr.Lexeme.Length);
 			AddProcedure.ProcedureType procType = procTypeStr.Lexeme switch {
 				"SID" => AddProcedure.ProcedureType.SID,
@@ -435,6 +460,7 @@ internal class Parser(string input)
 						position,
 						priorRange,
 						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Name) is Twe newProcName)
@@ -443,13 +469,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
-			ParseResult<string> procParse = new(
-				position,
-				procName.Position,
-				procName.Lexeme,
-				[]
-			);
-
+			literals.Add(procName);
 			advanceBy(procName.Lexeme.Length);
 			if (twes.FirstOrDefault(static twe => twe.Type is Colon) is not Twe colon)
 			{
@@ -463,6 +483,7 @@ internal class Parser(string input)
 						position,
 						priorRange,
 						[new Edit.Deletion(new(priorRange.End, twes.FirstOrDefault()?.Position.Start ?? priorRange.End))],
+						[..literals],
 						[]
 					);
 				else if (twes.FirstOrDefault(static twe => twe.Type is Colon) is Twe newColon)
@@ -471,6 +492,7 @@ internal class Parser(string input)
 					throw new Exception("Synchro failed!");
 			}
 
+			literals.Add(colon);
 			advanceBy(colon.Lexeme.Length);
 			Range intermediateProcRange = discriminator.Position.ExpandTo(airport.Position).ExpandTo(procTypeStr.Position).ExpandTo(colon.Position);
 			if (twes.FirstOrDefault(static twe => twe.Type is Delete) is Twe deletion)
@@ -480,7 +502,8 @@ internal class Parser(string input)
 					position,
 					intermediateProcRange.ExpandTo(deletion.Position),
 					new(airport.Lexeme, procType, procName.Lexeme),
-					[apParse, procParse]
+					[..literals],
+					[]
 				);
 			}
 
@@ -490,7 +513,8 @@ internal class Parser(string input)
 				geos.NextIdx,
 				intermediateProcRange.ExpandTo(geos.Range),
 				new(airport.Lexeme, procType, procName.Lexeme, geos is ParseResult<IDrawableGeo[]> gs ? gs.Result : []),
-				[apParse, procParse, geos]
+				[..literals],
+				[geos]
 			);
 		}
 		else
@@ -512,6 +536,8 @@ internal class Parser(string input)
 		// Parse the GEOs, one-by-one.
 		while (twe.FirstOrDefault(static twe => twe.Type is Indent) is Twe indent)
 		{
+			List<Twe> literals = [];
+
 			// Eat the indentation.
 			range = range.ExpandTo(indent.Position);
 			advanceBy(indent.Lexeme.Length);
@@ -520,6 +546,7 @@ internal class Parser(string input)
 			if (twe.Where(static twe => twe.Type is ConnectorType).MaxBy(static twe => twe.Lexeme.Length) is Twe connectorType)
 			{
 				// Connector!
+				literals.Add(connectorType);
 				advanceBy(connectorType.Lexeme.Length);
 				range = range.ExpandTo(connectorType.Position);
 
@@ -528,6 +555,7 @@ internal class Parser(string input)
 				if (twe.FirstOrDefault(static twe => twe.Type is Parameter) is Twe paramTwe)
 				{
 					// Optional parameter was included.
+					literals.Add(paramTwe);
 					advanceBy(paramTwe.Lexeme.Length);
 					range = range.ExpandTo(paramTwe.Position);
 					// Scrape off the ()s.
@@ -578,12 +606,14 @@ internal class Parser(string input)
 					position,
 					connectorRange,
 					connector,
+					[..literals],
 					[possibleLocations]
 				));
 			}
 			else if (twe.FirstOrDefault(static twe => twe.Type is SymbolType) is Twe symbolType)
 			{
 				// Symbol!
+				literals.Add(symbolType);
 				advanceBy(symbolType.Lexeme.Length);
 				range = range.ExpandTo(symbolType.Position);
 
@@ -592,6 +622,7 @@ internal class Parser(string input)
 				if (twe.FirstOrDefault(static twe => twe.Type is Parameter) is Twe paramTwe)
 				{
 					// Optional parameter was included.
+					literals.Add(paramTwe);
 					advanceBy(paramTwe.Lexeme.Length);
 					range = range.ExpandTo(paramTwe.Position);
 					// Scrape off the ()s.
@@ -621,6 +652,7 @@ internal class Parser(string input)
 						possibleLocation.NextIdx,
 						symbolRange,
 						[],
+						[..literals],
 						[possibleLocation]
 					));
 					continue;
@@ -647,6 +679,7 @@ internal class Parser(string input)
 					position,
 					symbolRange,
 					symbol,
+					[..literals],
 					[location]
 				));
 			}
@@ -662,6 +695,7 @@ internal class Parser(string input)
 						position,
 						indent.Position,
 						[new Edit.Deletion(new(indent.Position.End, twe.FirstOrDefault()?.Position.Start ?? indent.Position.End))],
+						[],
 						[]
 					);
 			}
@@ -677,6 +711,7 @@ internal class Parser(string input)
 				position,
 				range,
 				Corrections: [new Edit.Insertion(pos, "\tPOINT (0/0)")],
+				[],
 				[]
 			);
 		}
@@ -693,6 +728,7 @@ internal class Parser(string input)
 				position,
 				range,
 				[.. results],
+				[],
 				[.. children]
 			);
 		}
@@ -700,6 +736,7 @@ internal class Parser(string input)
 
 	public ParseResult ParseLocation(int position, ImmutableStack<Twe.Token[]> synchroSets)
 	{
+		List<Twe> literals = [];
 		(var twes, position) = Twes(position);
 		if (twes.FirstOrDefault(static twe => twe.Type is Name or Coordinate) is not Twe firstSection)
 		{
@@ -713,6 +750,7 @@ internal class Parser(string input)
 					position,
 					startRange,
 					[new Edit.Deletion(startRange)],
+					[.. literals],
 					[]
 				);
 			else if (twes.FirstOrDefault(static twe => twe.Type is Name or Coordinate) is Twe newFirstSection)
@@ -721,6 +759,7 @@ internal class Parser(string input)
 				throw new Exception("Synchro failed!");
 		}
 
+		literals.Add(firstSection);
 		Range range = firstSection.Position;
 
 		// This could be a name or a coordinate. Figure it out and use it accordingly.
@@ -736,6 +775,7 @@ internal class Parser(string input)
 		if (firstSection.Type is Name && twes.FirstOrDefault(static twe => twe.Type is Coordinate) is Twe coordDef && firstSection.Position.End == coordDef.Position.Start)
 		{
 			// Add the definition in for later.
+			literals.Add(coordDef);
 			operatingPoint = Parsing.ParseWaypoint(firstSection.Lexeme, coordDef.Lexeme, null);
 			_adHocFixes.Add(new(operatingPoint.FixName!.Name, operatingPoint));
 
@@ -750,6 +790,7 @@ internal class Parser(string input)
 		// Check if the fix is offset by a radial & distance.
 		if (twes.FirstOrDefault(static twe => twe.Type is RadialDist) is Twe radial)
 		{
+			literals.Add(radial);
 			operatingPoint = Parsing.ParseWaypoint(
 				firstSection.Type is Name ? firstSection.Lexeme : null,
 				firstSection.Type is Coordinate ? firstSection.Lexeme : null,
@@ -766,6 +807,7 @@ internal class Parser(string input)
 			position,
 			range,
 			operatingPoint,
+			Literals: [..literals],
 			Children: []
 		);
 	}
@@ -793,6 +835,7 @@ internal class Parser(string input)
 					// Edit in an arbitrary identifier.
 					new Edit.Insertion(pos, "FIX")
 				],
+				[],
 				[]
 			);
 		}
@@ -808,6 +851,7 @@ internal class Parser(string input)
 				children.Any(static c => c.NextIdx is -1) ? -1 : children.Max(static c => c.NextIdx),
 				range,
 				[.. children.Where(static c => c is ParseResult<PossiblyResolvedWaypoint>).Cast<ParseResult<PossiblyResolvedWaypoint>>().Select(static r => r.Result)],
+				[],
 				[.. children]
 			);
 		}
@@ -840,16 +884,14 @@ internal class Parser(string input)
 	}
 }
 
-public abstract record ParseResult(int NextIdx, Range Range, ParseResult[] Children)
+public abstract record ParseResult(int NextIdx, Range Range, Twe[] Literals, ParseResult[] Children)
 {
 	public abstract IEnumerable<Edit> Edits { get; }
 
 
-	public sealed record Failed(int NextIdx, Range Range, Edit[] Corrections, ParseResult[] Children) : ParseResult(NextIdx, Range, Children)
+	public sealed record Failed(int NextIdx, Range Range, Edit[] Corrections, Twe[] Literals, ParseResult[] Children) : ParseResult(NextIdx, Range, Literals, Children)
 	{
 		public override IEnumerable<Edit> Edits => [.. Corrections, .. Children.SelectMany(static c => c.Edits)];
-
-		public Failed Recast<U>() => new(NextIdx, Range, Corrections, Children);
 
 		public Failed Extend(IEnumerable<Edit> additionalCorrections) => this with {
 			Corrections = [.. Corrections, .. additionalCorrections]
@@ -857,7 +899,7 @@ public abstract record ParseResult(int NextIdx, Range Range, ParseResult[] Child
 	}
 }
 
-public sealed record ParseResult<T>(int NextIdx, Range Range, T Result, ParseResult[] Children) : ParseResult(NextIdx, Range, Children)
+public sealed record ParseResult<T>(int NextIdx, Range Range, T Result, Twe[] Literals, ParseResult[] Children) : ParseResult(NextIdx, Range, Literals, Children)
 {
 	public override IEnumerable<Edit> Edits => [.. Children.SelectMany(static c => c.Edits)];
 }

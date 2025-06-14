@@ -136,6 +136,11 @@ public record Position(
 	public static bool operator <(Position left, Position right) => left.CompareTo(right) < 0;
 	public static bool operator >(Position left, Position right) => left.CompareTo(right) > 0;
 
+	public static Position operator +(Position position, int charOffset) => position with {
+		Character = position.Character + charOffset
+	};
+	public static Position operator -(Position position, int charOffset) => position + (-charOffset);
+
 	public override string ToString() => $"{Line}:{Character}";
 }
 
@@ -178,7 +183,7 @@ public record Range(
 	public override string ToString() => $"{Start}..{End}";
 }
 
-internal record Twe(Twe.Token Type, string Lexeme, Range Position)
+public record Twe(Twe.Token Type, string Lexeme, Range Position)
 {
 	public enum Token
 	{

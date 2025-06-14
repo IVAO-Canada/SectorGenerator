@@ -131,7 +131,7 @@ internal sealed record GeoDefinition(string Name, Color Colour, LspGeo[] Geos, R
 	public static GeoDefinition Construct(ParseResult<AddGeo> parse)
 	{
 		CIFP cifp = InjectionContext.Shared.Get<CIFP>();
-		LspGeo[] validChildren = parse.Children[1] is ParseResult<IDrawableGeo[]> geoRes
+		LspGeo[] validChildren = parse.Children.SingleOrDefault() is ParseResult<IDrawableGeo[]> geoRes
 			? [..geoRes.Children.Where(static c =>
 					c is ParseResult<IDrawableGeo> pr && pr.Children.Any(static c => c is ParseResult<PossiblyResolvedWaypoint> or ParseResult<PossiblyResolvedWaypoint[]>)
 				).Cast<ParseResult<IDrawableGeo>>().Select(c => LspGeo.Construct(c, cifp))
@@ -152,14 +152,14 @@ internal sealed record ProcedureDefinition(string Airport, AddProcedure.Procedur
 	{
 		CIFP cifp = InjectionContext.Shared.Get<CIFP>();
 
-		if (parse.Children[^1] is not ParseResult<IDrawableGeo[]> geos)
+		if (parse.Children[0] is not ParseResult<IDrawableGeo[]> geos)
 			return new(
 				parse.Result.Airport,
 				parse.Result.Type,
 				parse.Result.Identifier.Trim('"'),
 				[],
-				parse.Children[0].Range,
-				parse.Children[1].Range,
+				parse.Literals[1].Position,
+				parse.Literals[3].Position,
 				parse.Range
 			);
 
@@ -170,8 +170,8 @@ internal sealed record ProcedureDefinition(string Airport, AddProcedure.Procedur
 			parse.Result.Type,
 			parse.Result.Identifier.Trim('"'),
 			[.. validChildren.Select(c => LspGeo.Construct(c, cifp))],
-			parse.Children[0].Range,
-			parse.Children[1].Range,
+			parse.Literals[1].Position,
+			parse.Literals[3].Position,
 			parse.Range
 		);
 	}
