@@ -79,8 +79,6 @@ InjectionContext.Shared.Add(communicator);
 InjectionContext.Shared.Add<DocumentManager>();
 
 // Add the FAA data.
-System.Diagnostics.Debugger.Launch();
-
 if (Environment.GetEnvironmentVariable("LSP_CWD") is string lspDir)
 	Environment.CurrentDirectory = lspDir;
 

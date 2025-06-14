@@ -322,9 +322,6 @@ public class SID : Procedure
 			if (lastReturned is not null)
 				yield return lastReturned;
 
-			if (!(char.IsDigit(refFix[^1]) || "LCR".Contains(refFix[^1])))
-				System.Diagnostics.Debugger.Break();
-
 			foreach (var instr in inboundTransition.Value)
 			{
 				if (instr.Endpoint is ICoordinate)
