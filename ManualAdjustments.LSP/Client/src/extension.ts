@@ -22,16 +22,19 @@ export function activate(context: ExtensionContext) {
 	const serverOptions: ServerOptions = {
 		run: {
 			command: `${context.extensionPath}/bin/maf-lsp`,
+			options: {
+				cwd: context.extensionPath
+			},
 			transport: TransportKind.pipe
 		},
 		debug: {
-			command: 'dotnet',
-			args: [
-				'watch',
-				'--project',
-				'C:\\Users\\westo\\OneDrive\\Flying\\IVAO\\SectorUtils\\ManualAdjustments.LSP',
-				'--'
-			],
+			command: 'C:\\Users\\westo\\OneDrive\\Flying\\IVAO\\SectorUtils\\ManualAdjustments.LSP\\bin\\Debug\\net9.0\\maf-lsp.exe',
+			options: {
+				cwd: context.extensionPath,
+				env: {
+					LSP_CWD: context.extensionPath
+				}
+			},
 			transport: TransportKind.pipe
 		}
 	};

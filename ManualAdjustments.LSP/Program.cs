@@ -3,7 +3,6 @@ using ManualAdjustments.LSP.Messages;
 
 using System.CommandLine;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 // Get on that STDIO right away, just in case!
 Communicator communicator = new StdioCommunicator();
@@ -80,7 +79,12 @@ InjectionContext.Shared.Add(communicator);
 InjectionContext.Shared.Add<DocumentManager>();
 
 // Add the FAA data.
-InjectionContext.Shared.Add(CIFPReader.CIFP.Load("s3://ivao-us/reduced/"));
+System.Diagnostics.Debugger.Launch();
+
+if (Environment.GetEnvironmentVariable("LSP_CWD") is string lspDir)
+	Environment.CurrentDirectory = lspDir;
+
+InjectionContext.Shared.Add(CIFPReader.CIFP.Load("http://ivao-us.s3-website-us-west-2.amazonaws.com/reduced/"));
 InjectionContext.Shared.Add(await FaaCycleData.LoadAsync());
 
 // Add the JSON serialisation needs.

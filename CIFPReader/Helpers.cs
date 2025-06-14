@@ -1,5 +1,4 @@
 ﻿using Amazon.S3;
-using Amazon.S3.Model;
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -24,7 +23,39 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		if (string.IsNullOrWhiteSpace(directory))
 			directory = Environment.CurrentDirectory;
 
-		if (directory.StartsWith("s3://", StringComparison.InvariantCultureIgnoreCase))
+		if (directory.StartsWith("https://", StringComparison.InvariantCultureIgnoreCase) || directory.StartsWith("http://", StringComparison.InvariantCultureIgnoreCase))
+		{
+			string[] filenames = [
+				"aerodrome.json",
+				"airspace.json",
+				"airway.json",
+				"fix.json",
+				"mora.json",
+				"navaid.json",
+				"procedure.json",
+				"runway.json",
+			];
+
+			string uriPrefix = directory.TrimEnd('/') + '/';
+			directory = Environment.CurrentDirectory;
+			string outDir = Path.Combine(directory, "cifp");
+			// Check if we need to pull everything or not.
+			if (!File.Exists(Path.Combine(outDir, "aerodrome.json")) || File.GetLastWriteTime(Path.Combine(outDir, "aerodrome.json")) < DateTime.Now.AddDays(-3))
+			{
+				HttpClient client = new();
+				int complete = 0;
+
+				Parallel.ForEach(filenames, async fp => {
+					using FileStream file = File.Create(Path.Combine(outDir, fp));
+					await (await client.GetStreamAsync(uriPrefix + fp)).CopyToAsync(file);
+					Interlocked.Increment(ref complete);
+				});
+
+				while (complete < filenames.Length)
+					Task.Delay(250).Wait();
+			}
+		}
+		else if (directory.StartsWith("s3://", StringComparison.InvariantCultureIgnoreCase))
 		{
 			directory = directory[5..];
 			string bucketName = directory.Split('/')[0];
@@ -35,31 +66,8 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 			// Check if we need to pull everything or not.
 			if (!File.Exists(Path.Combine(outDir, "aerodrome.json")) || File.GetLastWriteTime(Path.Combine(outDir, "aerodrome.json")) < DateTime.Now.AddDays(-3))
 			{
-				AmazonS3Client s3 = new("0000", "0000");
-
-				try
-				{
-					ListObjectsV2Response listResult = s3.ListObjectsV2Async(new() { BucketName = bucketName, Prefix = prefix }).Result;
-					SemaphoreSlim continueSem = new(1);
-					int threadsLeft = listResult.S3Objects.Count;
-
-					continueSem.Wait();
-					var loop = Parallel.ForEach(listResult.S3Objects, async s3obj => {
-						var getResp = await s3.GetObjectAsync(s3obj.BucketName, s3obj.Key);
-
-						string outpath = Path.Combine(outDir, Path.GetFileName(s3obj.Key));
-						if (File.Exists(outpath))
-							File.Delete(outpath);
-
-						await getResp.WriteResponseStreamToFileAsync(outpath, false, CancellationToken.None);
-
-						if (Interlocked.Decrement(ref threadsLeft) <= 0)
-							continueSem.Release();
-					});
-
-					continueSem.Wait(TimeSpan.FromMinutes(2));
-				}
-				catch (Exception ex) { }
+				Amazon.S3.Transfer.TransferUtility util = new(Amazon.RegionEndpoint.USWest2);
+				util.DownloadDirectoryAsync(bucketName, prefix, outDir);
 			}
 		}
 
