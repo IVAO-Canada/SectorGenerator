@@ -2,7 +2,9 @@
   "name": "aurora-maf",
   "version": "1.0.0",
   "publisher": "wes-ivao-644899",
-  "description": "Aurora MAF File Server",
+  "displayName": "Aurora MAF File Editor",
+  "description": "Provides language support for Aurora MAF files as well as a built-in previewer.",
+  "categories": ["Programming Languages", "Visualization"],
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -29,6 +31,11 @@
   "sponsor": {
     "url": "https://ko-fi.com/wsleeman"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IVAO-US/SectorGenerator"
+  },
+  "license": "PolyForm-Strict-1.0.0",
 
   "scripts": {
     "vscode:prepublish": "npm run compile",

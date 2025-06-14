@@ -1,3 +1,4 @@
 **/*.ts
+**/*.pdb
 **/tsconfig.json
-azure-devops-pat.txt
+**/azure-devops-pat.txt

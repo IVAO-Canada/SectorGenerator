@@ -21,7 +21,7 @@ export function activate(context: ExtensionContext) {
 
 	const serverOptions: ServerOptions = {
 		run: {
-			command: 'maf-lsp',
+			command: `${context.extensionPath}/bin/maf-lsp`,
 			transport: TransportKind.pipe
 		},
 		debug: {
