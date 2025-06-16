@@ -16,7 +16,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 
 	public int Cycle => Aerodromes.Values.Max(a => a.Cycle);
 
-	public static CIFP Load(string? directory = null)
+	public static async Task<CIFP> LoadAsync(string? directory = null)
 	{
 		if (string.IsNullOrWhiteSpace(directory))
 			directory = Environment.CurrentDirectory;
@@ -68,7 +68,7 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 			if (!File.Exists(Path.Combine(outDir, "aerodrome.json")) || File.GetLastWriteTime(Path.Combine(outDir, "aerodrome.json")) < DateTime.Now.AddDays(-3))
 			{
 				Amazon.S3.Transfer.TransferUtility util = new(Amazon.RegionEndpoint.USWest2);
-				util.DownloadDirectoryAsync(bucketName, prefix, outDir);
+				await util.DownloadDirectoryAsync(bucketName, prefix, outDir);
 			}
 		}
 
@@ -114,19 +114,19 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 		else
 		{
 			HttpClient cli = new();
-			string pageListing = cli.GetStringAsync(@"https://aeronav.faa.gov/Upload_313-d/cifp/").Result;
+			string pageListing = await cli.GetStringAsync(@"https://aeronav.faa.gov/Upload_313-d/cifp/");
 #pragma warning disable IDE0079
 #pragma warning disable SYSLIB1045 // Convert to 'GeneratedRegexAttribute'.
 			Regex cifpZip = new(@"CIFP_\d+\.zip");
 #pragma warning restore SYSLIB1045 // Convert to 'GeneratedRegexAttribute'.
 			string currentCifp = cifpZip.Matches(pageListing).Last().Value;
-			byte[] cifpDat = cli.GetByteArrayAsync(@"https://aeronav.faa.gov/Upload_313-d/cifp/" + currentCifp).Result;
+			byte[] cifpDat = await cli.GetByteArrayAsync(@"https://aeronav.faa.gov/Upload_313-d/cifp/" + currentCifp);
 
 			if (!Directory.Exists(Path.GetDirectoryName(zipPath)))
 				Directory.CreateDirectory(Path.GetDirectoryName(zipPath) ?? directory);
 
 			File.WriteAllBytes(zipPath, cifpDat);
-			return Load(directory);
+			return await LoadAsync(directory);
 		}
 	}
 

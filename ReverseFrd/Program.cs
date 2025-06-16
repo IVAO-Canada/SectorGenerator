@@ -44,7 +44,7 @@ if (match.Groups["lonHemisphere"].Value is "W")
 Coordinate coord = new(latitude, longitude);
 
 Console.WriteLine("Getting data from internet.");
-CIFP cifp = CIFP.Load("http://ivao-us.s3-website-us-west-2.amazonaws.com/reduced/");
+CIFP cifp = await CIFP.LoadAsync("http://ivao-us.s3-website-us-west-2.amazonaws.com/reduced/");
 
 Coordinate centrePoint;
 

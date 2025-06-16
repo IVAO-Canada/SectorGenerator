@@ -82,7 +82,7 @@ InjectionContext.Shared.Add<DocumentManager>();
 if (Environment.GetEnvironmentVariable("LSP_CWD") is string lspDir)
 	Environment.CurrentDirectory = lspDir;
 
-InjectionContext.Shared.Add(CIFPReader.CIFP.Load("http://ivao-us.s3-website-us-west-2.amazonaws.com/reduced/"));
+InjectionContext.Shared.Add(await CIFPReader.CIFP.LoadAsync("http://ivao-us.s3-website-us-west-2.amazonaws.com/reduced/"));
 InjectionContext.Shared.Add(await FaaCycleData.LoadAsync());
 
 // Add the JSON serialisation needs.
