@@ -1,4 +1,4 @@
-import { commands, window, workspace, ExtensionContext, ViewColumn, WebviewPanel, TextEditorSelectionChangeKind } from 'vscode';
+﻿import { commands, window, workspace, ExtensionContext, ViewColumn, WebviewPanel, TextEditorSelectionChangeKind } from 'vscode';
 import {LanguageClient, LanguageClientOptions, ServerOptions, TransportKind} from 'vscode-languageclient/node'
 
 let client: LanguageClient;

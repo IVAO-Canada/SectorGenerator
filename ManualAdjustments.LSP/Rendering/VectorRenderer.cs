@@ -27,13 +27,7 @@ internal static class VectorRenderer
 		MemoryStream drawStream = new();
 		using (SKCanvas canvas = SKSvgCanvas.Create(SKRect.Create(width, height), new SKManagedWStream(drawStream, false)))
 		{
-#if DEBUG
-			DateTimeOffset start = DateTimeOffset.Now;
-#endif
 			draw(canvas);
-#if DEBUG
-			System.Diagnostics.Debug.WriteLine($"Draw call took {(DateTimeOffset.Now - start).TotalMilliseconds:000.00}ms");
-#endif
 		}
 
 		drawStream.Position = 0;

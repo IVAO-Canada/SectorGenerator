@@ -298,7 +298,7 @@ public abstract record GeoConnector(PossiblyResolvedWaypoint[] Points) : IDrawab
 		}
 	}
 
-	public sealed record Arc(PossiblyResolvedWaypoint[] Points, Arc.Direction Towards) : GeoConnector(Points)
+	public sealed record Arc(PossiblyResolvedWaypoint[] Points, Arc.Direction Towards, ICoordinate? Centrepoint = null) : GeoConnector(Points)
 	{
 		public enum Direction : ushort
 		{
@@ -316,18 +316,18 @@ public abstract record GeoConnector(PossiblyResolvedWaypoint[] Points) : IDrawab
 
 			if (_resolvedPoints.Length == 1) yield break;
 
+			Coordinate centrepoint = Centrepoint?.GetCoordinate() ?? new(_resolvedPoints.Average(static p => p.Latitude), _resolvedPoints.Average(static p => p.Longitude));
+
 			foreach (var (from, to) in _resolvedPoints[..^1].Zip(_resolvedPoints[1..]).Select(p => (p.First.GetCoordinate(), p.Second.GetCoordinate())))
 			{
 				var fromToTo = from.GetBearingDistance(to);
-				Coordinate centerpoint = from.FixRadialDistance(fromToTo.bearing ?? new(0), fromToTo.distance / 2);
-
-				TrueCourse startAngle = centerpoint.GetBearingDistance(from).bearing ?? new(0),
-							 endAngle = centerpoint.GetBearingDistance(to).bearing ?? new(0);
+				TrueCourse startAngle = centrepoint.GetBearingDistance(from).bearing ?? new(0),
+							 endAngle = centrepoint.GetBearingDistance(to).bearing ?? new(0);
 				int step = Math.Sign(startAngle.Angle(new TrueCourse((decimal)Towards)));
 				step = (step == 0 ? 1 : step) * 15;
 
 				for (Course angle = startAngle; (int)angle.Degrees % 360 != (int)endAngle.Degrees % 360; angle += (Math.Abs(endAngle.Angle(angle)) < Math.Abs(step)) ? angle.Angle(endAngle) : step)
-					yield return centerpoint.FixRadialDistance(angle, fromToTo.distance / 2);
+					yield return centrepoint.FixRadialDistance(angle, fromToTo.distance / 2);
 
 				if (to != _resolvedPoints[^1].GetCoordinate())
 					yield return to;

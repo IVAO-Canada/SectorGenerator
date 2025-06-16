@@ -1,6 +1,6 @@
 {
   "name": "aurora-maf",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "publisher": "wes-ivao-644899",
   "displayName": "Aurora MAF File Editor",
   "description": "Provides language support for Aurora MAF files as well as a built-in previewer.",

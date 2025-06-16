@@ -56,26 +56,28 @@ internal class Server : IDisposable, IResponseCollector
 		JsonSerializerOptions jsonOpts = InjectionContext.Shared.Get<JsonSerializerOptions>();
 		foreach (Message message in _messageQueue.GetConsumingEnumerable())
 		{
-			if (message is RequestMessage req)
+			try
 			{
-				try
+				if (message is RequestMessage req)
 				{
-					ResponseMessage result;
+					try
+					{
+						ResponseMessage result;
 
-					if (InjectionContext.Shared.GetReqHandler(req.Method) is RequestMessageHandler handler)
-						// Call the registered handler.
-						result = await handler(req);
-					else
-						// No handler for it. Ah well!
-						result = new ResponseMessage(req.Id, new(Types.ErrorCode.MethodNotFound, $"Method {req.Method} is not handled.", null));
+						if (InjectionContext.Shared.GetReqHandler(req.Method) is RequestMessageHandler handler)
+							// Call the registered handler.
+							result = await handler(req);
+						else
+							// No handler for it. Ah well!
+							result = new ResponseMessage(req.Id, new(Types.ErrorCode.MethodNotFound, $"Method {req.Method} is not handled.", null));
 
-					string msgJsonText = JsonSerializer.Serialize((Message)result, jsonOpts);
-					await _client.SendAsync(msgJsonText);
-				}
-				catch (Exception ex)
-				{
+						string msgJsonText = JsonSerializer.Serialize((Message)result, jsonOpts);
+						await _client.SendAsync(msgJsonText);
+					}
+					catch (Exception ex)
+					{
 #if DEBUG
-					System.Diagnostics.Debugger.Launch();
+						System.Diagnostics.Debugger.Launch();
 #else
 					ResponseMessage errorResp = new(req.Id, new(
 						ErrorCode.RequestFailed,
@@ -85,26 +87,34 @@ internal class Server : IDisposable, IResponseCollector
 					string msgJsonText = JsonSerializer.Serialize((Message)errorResp, jsonOpts);
 					await _client.SendAsync(msgJsonText);
 #endif
+					}
+				}
+				else if (message is ResponseMessage rsp)
+					ResponseReceived?.Invoke(rsp);
+				else if (message is NotificationMessage note)
+				{
+					try
+					{
+						if (InjectionContext.Shared.GetNoteHandler(note.Method) is NotificationMessageHandler handler)
+							await handler(note);
+						else
+							// No handler for it. Ah well!
+							System.Diagnostics.Debug.WriteLine($"No handler for notification {note.Method}!");
+					}
+					catch (Exception ex)
+					{
+#if DEBUG
+						System.Diagnostics.Debugger.Launch();
+#endif
+					}
 				}
 			}
-			else if (message is ResponseMessage rsp)
-				ResponseReceived?.Invoke(rsp);
-			else if (message is NotificationMessage note)
+			catch (Exception ex)
 			{
-				try
-				{
-					if (InjectionContext.Shared.GetNoteHandler(note.Method) is NotificationMessageHandler handler)
-						await handler(note);
-					else
-						// No handler for it. Ah well!
-						System.Diagnostics.Debug.WriteLine($"No handler for notification {note.Method}!");
-				}
-				catch (Exception ex)
-				{
 #if DEBUG
-					System.Diagnostics.Debugger.Launch();
+				System.Diagnostics.Debugger.Launch();
 #endif
-				}
+				Console.WriteLine($"ERROR! {ex}");
 			}
 		}
 	}
