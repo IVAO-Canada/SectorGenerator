@@ -970,7 +970,11 @@ F;online.ply
 		{
 			try
 			{
-				return await Osm.Load();
+				DateTimeOffset start = DateTimeOffset.Now;
+				Osm res = await Osm.Load();
+				TimeSpan loadTime = DateTimeOffset.Now - start;
+				Console.WriteLine($"OSM download succeeded in {loadTime.TotalMinutes:0} mins, {loadTime.Seconds} secs");
+				return res;
 			}
 			catch (IOException) { /* Sometimes things choke. */ }
 			catch (TimeoutException) { /* Sometimes things choke. */ }
