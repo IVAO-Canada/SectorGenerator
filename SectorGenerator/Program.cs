@@ -956,6 +956,7 @@ F;online.ply
 			{
 				return await ArtccBoundaries.GetBoundariesAsync();
 			}
+			catch (IOException) { /* Sometimes things choke. */ }
 			catch (TimeoutException) { /* Sometimes things choke. */ }
 			catch (TaskCanceledException) { /* Sometimes things choke. */ }
 		}
@@ -971,6 +972,7 @@ F;online.ply
 			{
 				return await Osm.Load();
 			}
+			catch (IOException) { /* Sometimes things choke. */ }
 			catch (TimeoutException) { /* Sometimes things choke. */ }
 			catch (TaskCanceledException) { /* Sometimes things choke. */ }
 
@@ -994,6 +996,7 @@ F;online.ply
 
 				return retval;
 			}
+			catch (IOException) { /* Sometimes things choke. */ }
 			catch (TimeoutException) { /* Sometimes things choke. */ }
 			catch (TaskCanceledException) { /* Sometimes things choke. */ }
 		}
