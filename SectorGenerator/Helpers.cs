@@ -1,10 +1,13 @@
-﻿using System.Collections.Frozen;
+﻿using CIFPReader;
+
+using Clipper2Lib;
+
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 
-using CIFPReader;
-using Clipper2Lib;
 using WSleeman.Osm;
 
 namespace SectorGenerator;
@@ -37,14 +40,27 @@ internal static class Helpers
 		return IsInPolygon(polygon, ((double)p.Latitude, (double)p.Longitude));
 	}
 
+	private static readonly ConcurrentDictionary<int, (double minLat, double maxLat, double minLon, double maxLon)> _polygonBoundsCache = [];
 	/// <seealso cref="https://stackoverflow.com/a/218081/8443457"/>
 	public static bool IsInPolygon((double Latitude, double Longitude)[] polygon, (double Latitude, double Longitude) point)
 	{
 		if (polygon.Length == 0)
 			return false;
 
-		double minLat = polygon.Min(p => p.Latitude), maxLat = polygon.Max(p => p.Latitude),
-			  minLon = polygon.Min(p => p.Longitude), maxLon = polygon.Max(p => p.Longitude);
+		double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+		if (_polygonBoundsCache.TryGetValue(polygon.GetHashCode(), out (double minLat, double maxLat, double minLon, double maxLon) parameters))
+			(minLat, maxLat, minLon, maxLon) = parameters;
+		else
+		{
+			foreach (var (lat, lon) in polygon)
+			{
+				minLat = Math.Min(lat, minLat);
+				maxLat = Math.Max(lat, maxLat);
+				minLon = Math.Min(lon, minLon);
+				maxLon = Math.Max(lon, maxLon);
+			}
+			_polygonBoundsCache[polygon.GetHashCode()] = (minLat, maxLat, minLon, maxLon);
+		}
 
 		if (maxLon - minLon > 180)
 			return IsInPolygon([.. polygon.Select(p => (p.Latitude, (p.Longitude + 360) % 360))], (point.Latitude, (point.Longitude + 360) % 360));
@@ -72,7 +88,7 @@ internal static class Helpers
 		http.DefaultRequestHeaders.Authorization = new("Bearer", token);
 		http.BaseAddress = new(@"https://api.ivao.aero");
 		HashSet<JsonObject>? positions = null;
-		
+
 		while (positions is null)
 		{
 			try
@@ -401,7 +417,7 @@ internal static class Helpers
 			last = coord;
 		}
 
-		return new(source.Id, [..nodes], source.Tags);
+		return new(source.Id, [.. nodes], source.Tags);
 	}
 }
 
@@ -413,8 +429,7 @@ public class Spinner : IDisposable
 	public static Spinner Default => new(TimeSpan.FromSeconds(0.5), " -", " \\", " |", " /");
 
 	public Spinner(TimeSpan delay, params string[] states) =>
-		Task.Run(async () =>
-		{
+		Task.Run(async () => {
 			_delay = delay;
 			int lastStateLength = 0;
 			while (true)

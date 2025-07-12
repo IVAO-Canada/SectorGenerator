@@ -41,6 +41,9 @@ internal partial class Mrva : IDisposable
 		}
 
 		string xmlDir = Path.Combine(_fileDir, "xml");
+		if (Directory.Exists(xmlDir))
+			Directory.Delete(xmlDir, true);
+
 		Directory.Move(Path.Combine(_fileDir, "faa-mva-kml-master", "mva-faa-xml"), xmlDir);
 
 		foreach (string filePath in Directory.EnumerateFiles(xmlDir).Where(static fp => fp.Contains("FUS3")))

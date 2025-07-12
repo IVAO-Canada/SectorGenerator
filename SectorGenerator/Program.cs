@@ -288,7 +288,6 @@ public class Program
 		Console.WriteLine($" Done!");
 
 		Console.Write("Generating MRVAs..."); await Console.Out.FlushAsync();
-		// Dummy loader to force all the downloading
 		string mvaFolder = Path.Combine(includeFolder, "mvas");
 
 		if (!Directory.Exists(mvaFolder))
@@ -299,25 +298,31 @@ public class Program
 			Console.WriteLine(" Failed! (bypassing)");
 		else
 		{
-			Parallel.ForEach(mrvas!.Volumes, async arg => {
+			IEnumerable<(string FilePath, string Contents)> mrvaFiles = mrvas!.Volumes.AsParallel().AsUnordered().Select(arg => {
 				try
 				{
 					var (fn, volume) = arg;
-					using StreamWriter mvaFile = new(Path.Combine(mvaFolder, fn + ".mva"), false);
+					StringBuilder mvaFile = new();
 
 					foreach (var seg in volume)
 					{
 						// Place the label line.
 						var (lat, lon) = mrvas.PlaceLabel(seg);
-						await mvaFile.WriteLineAsync($"L;{seg.Name};{lat:00.0####};{lon:000.0####};{seg.MinimumAltitude / 100:000};8;");
+						mvaFile.AppendLine($"L;{seg.Name};{lat:00.0####};{lon:000.0####};{seg.MinimumAltitude / 100:000};8;");
 
 						// Add all the segments for that volume.
 						foreach (var bp in seg.BoundaryPoints)
-							await mvaFile.WriteLineAsync($"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};");
+								mvaFile.AppendLine($"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};");
 					}
+
+					return (FilePath: Path.Combine(mvaFolder, fn + ".mva"), Contents: mvaFile.ToString());
 				}
 				catch (IOException) { /* File in use. */ }
-			});
+				return (FilePath: "", Contents: "");
+			}).Where(p => !string.IsNullOrEmpty(p.FilePath));
+
+			foreach (var (path, contents) in mrvaFiles)
+				await File.WriteAllTextAsync(path, contents);
 
 			Console.WriteLine($" Done!");
 		}
@@ -973,14 +978,14 @@ F;online.ply
 				DateTimeOffset start = DateTimeOffset.Now;
 				Osm res = await Osm.Load();
 				TimeSpan loadTime = DateTimeOffset.Now - start;
-				Console.WriteLine($"OSM download succeeded in {loadTime.TotalMinutes:0} mins, {loadTime.Seconds} secs");
+				Console.Write($"OSM download succeeded in {loadTime.TotalMinutes:0} mins, {loadTime.Seconds} secs");
 				return res;
 			}
 			catch (IOException) { /* Sometimes things choke. */ }
 			catch (TimeoutException) { /* Sometimes things choke. */ }
 			catch (TaskCanceledException) { /* Sometimes things choke. */ }
 
-			Console.WriteLine("OSM download failed... Retrying");
+			Console.Write("OSM download failed... Retrying...");
 			await Task.Delay(TimeSpan.FromSeconds(15)); // Give it a breather.
 		}
 
