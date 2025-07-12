@@ -793,7 +793,7 @@ F;online.ply
 			// Gates
 			Gates gates = new(
 				icao,
-				apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "parking_position")
+				apOsm.GetFiltered(g => w["aeroway"] is "parking_position")
 			);
 			gtsLabels.AddRange(gates.Labels.Split("\r\n", StringSplitOptions.RemoveEmptyEntries));
 			File.WriteAllLines(Path.Combine(labelFolder, icao + ".gts"), [.. gtsLabels]);

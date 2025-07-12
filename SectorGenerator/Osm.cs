@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using System.Collections.Frozen;
+﻿using System.Collections.Frozen;
 
 using WSleeman.Osm;
 
@@ -17,14 +16,25 @@ internal class Osm(OsmData data)
 
 	public FrozenDictionary<long, Relation> Relations => _aerodata.Relations;
 
-	public static async Task<Osm> Load() => 
-		new((await Overpass.FromQueryAsync(@"[out:json][timeout:360];
-(area[""ISO3166-1:alpha3""=""USA""]; area[""ISO3166-1:alpha3""=""BHS""];)->.searchArea;
-(
-	nwr[""aeroway""](area.searchArea);
-	>;
-);
-out;", 8)).Filter(i => i["aeroway"] is not null));
+	public static async Task<Osm> Load() =>
+		new((await Overpass.FromQueryAsync($$"""
+		[out:json][timeout:{{(int)TimeSpan.FromMinutes(7).TotalSeconds}}];
+		(area["ISO3166-1:alpha3"="USA"]; area["ISO3166-1:alpha3"="BHS"];)->.searchArea;
+		(
+			nwr[aeroway=aerodrome][icao][!abandoned](area.searchArea);
+			way[aeroway=holding_position](area.searchArea);
+			nw[aeroway=parking_position](area.searchArea);
+			wr[aeroway=apron](area.searchArea);
+			wr[aeroway=terminal](area.searchArea);
+			wr[aeroway=hangar](area.searchArea);
+			way[aeroway=taxilane](area.searchArea);
+			way[aeroway=taxiway](area.searchArea);
+			wr[aeroway=helipad](area.searchArea);
+			way[aeroway=runway](area.searchArea);
+			>;
+		);
+		out;		
+		""", 8)));
 
 	public Osm InRegion((double Latitude, double Longitude)[] boundingRegion)
 	{
@@ -85,9 +95,10 @@ out;", 8)).Filter(i => i["aeroway"] is not null));
 
 				case Relation r:
 					return r.Members.Select(checkItem).FirstOrDefault(i => i is not null);
-					
+
 				default: throw new NotImplementedException();
-			};
+			}
+			;
 		}
 
 		Dictionary<T, FrozenDictionary<long, Node>> nodeGroups = _aerodata.Nodes.AsParallel().AsUnordered().GroupBy(kvp => checkItem(kvp.Value)).Where(g => g.Key is not null).ToDictionary(g => g.Key!, g => g.ToFrozenDictionary());
