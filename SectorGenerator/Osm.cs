@@ -31,9 +31,12 @@ internal class Osm(OsmData data)
 			way[aeroway=taxiway](area.searchArea);
 			wr[aeroway=helipad](area.searchArea);
 			way[aeroway=runway](area.searchArea);
-			>;
+		)->.baseData;
+		(
+			.baseData;
+			>>;
 		);
-		out;		
+		out;
 		""", 8)));
 
 	public Osm InRegion((double Latitude, double Longitude)[] boundingRegion)
