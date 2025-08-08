@@ -1,4 +1,7 @@
 #define OSM
+
+using ManualAdjustments;
+
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Text;
@@ -26,26 +29,7 @@ public class Program
 #if OSM
 		Console.Write("Queueing OSM data download..."); await Console.Out.FlushAsync();
 		Osm? osm = null;
-
-		Task osmLoader = Task.Run(async () =>
-		{
-			for (int iterations = 0; iterations < 3; ++iterations)
-			{
-				try
-				{
-					osm = await Osm.Load();
-					break;
-				}
-				catch (TimeoutException) { /* Sometimes things choke. */ }
-				catch (TaskCanceledException) { /* Sometimes things choke. */ }
-
-				await Task.Delay(TimeSpan.FromSeconds(15)); // Give it a breather.
-			}
-
-			if (osm is null)
-				throw new Exception("Could not download OSM data.");
-		});
-
+		Task osmLoader = Task.Run(async () => osm = await LoadOsmAsync());
 		Console.WriteLine(" Done!");
 #endif
 
@@ -57,7 +41,8 @@ public class Program
 			Console.Write($"{files.Length} files detected... "); await Console.Out.FlushAsync();
 
 			foreach (string filepath in files)
-				manualAdjustments.AddRange(ManualAdjustment.Process(File.ReadAllText(filepath)));
+				if (Parsing.Parse(File.ReadAllText(filepath)) is ParseResult<ManualAdjustment[]> res)
+					manualAdjustments.AddRange(res.Result);
 
 			Console.WriteLine($"Done! Loaded {manualAdjustments.Count} adjustments.");
 		}
@@ -85,7 +70,7 @@ public class Program
 
 		Dictionary<string, HashSet<AddProcedure>> addedProcedures = [];
 		HashSet<NamedCoordinate> vfrFixes = [];
-		HashSet<ICoordinate[]> vfrRoutes = [];
+		HashSet<(string Filter, ICoordinate[] Points)> vfrRoutes = [];
 		Dictionary<string, (string Colour, HashSet<IDrawableGeo> Drawables)> videoMaps = [];
 		if (manualAdjustments.Count > 0)
 		{
@@ -113,7 +98,7 @@ public class Program
 
 			// VFR routes
 			foreach (AddVfrRoute vr in manualAdjustments.Where(a => a is AddVfrRoute).Cast<AddVfrRoute>())
-				vfrRoutes.Add([.. vr.Points.Select(p => {
+				vfrRoutes.Add((vr.Filter, [.. vr.Points.Select(p => {
 					ICoordinate resolvedCoord = p.Resolve(cifp);
 
 					if (resolvedCoord is NamedCoordinate nc)
@@ -130,7 +115,7 @@ public class Program
 					}
 
 					return resolvedCoord;
-				})]);
+				})]));
 
 			// Airways (in-place)
 			HashSet<PossiblyResolvedWaypoint> failedResolutions = [];
@@ -188,7 +173,7 @@ public class Program
 		(string Fir, string Shape)[] firWebeyeShapes = [..
 			firBoundaries.Where(b => targetFirs.Contains(b.Key)).Select(b => (
 				b.Key,
-				string.Join("\r\n", b.Value.SelectMany(v => v.Points).Reverse().Select(p => $"{p.Latitude:00.0####}:{(p.Longitude > 0 ? p.Longitude - 360 : p.Longitude):000.0####}").ToArray())
+				string.Join("\r\n", [.. b.Value.SelectMany(v => v.Points).Reverse().Select(p => $"{p.Latitude:00.0####}:{(p.Longitude > 0 ? p.Longitude - 360 : p.Longitude):000.0####}")])
 			))
 		];
 
@@ -273,6 +258,9 @@ public class Program
 			g["abandoned"] is null
 		);
 
+		Console.WriteLine($" Done!");
+		Console.Write("Filtering OSM data..."); await Console.Out.FlushAsync();
+
 		Dictionary<string, Way> apBoundaryWays = apBoundaries.WaysAndBoundaries()
 				.Select(w => (w["icao"], w))
 				.OrderBy(kvp => kvp.w.Tags.ContainsKey("military") ? 1 : 0)
@@ -284,6 +272,9 @@ public class Program
 			apBoundaryWays,
 			30
 		);
+
+		Console.WriteLine($" Done!");
+		Console.Write("Discovering missing ICAOs..."); await Console.Out.FlushAsync();
 
 		Dictionary<string, Way[]> firOsmOnlyIcaos =
 			apBoundaries.GetFiltered(apb => !cifp.Aerodromes.ContainsKey(apb["icao"]!)).Group(
@@ -365,36 +356,42 @@ public class Program
 			File.WriteAllText(Path.Combine(polygonFolder, icao + ".tfl"), tfl);
 
 		Console.WriteLine($" Done!");
-#endif
+		Console.Write("Drawing online polys..."); await Console.Out.FlushAsync();
 
-		File.WriteAllText
-			(Path.Combine(polygonFolder, "online.ply"),
-			string.Join(
-				"\r\n\r\n",
-				atcPositions
-					.Where(p => p["regionMap"] is JsonArray region && region.Count > 0)
-					.Select(p => WebeyeAirspaceDrawing.ToPolyfillPath(p["composePosition"]!.GetValue<string>(), p["position"]?.GetValue<string>() ?? "TWR", p["regionMap"]!.AsArray()))
-					.Concat(firBoundaries.Where(fir => fir.Value.Count > 0).Select(fir => WebeyeAirspaceDrawing.ToPolyfillPath($"{fir.Key}_CTR", "CTR", fir.Value.SelectMany(kvp => kvp.Points).ToArray())))
-			)
-#if OSM
-+ "\r\n\r\n" + string.Join("\r\n\r\n",
-		centerAirports
-			.Values
-			.SelectMany(adg => adg.Select(ad => apBoundaryWays.TryGetValue(ad.Identifier, out var retval) ? (ad.Identifier, retval) : ((string, Way)?)null))
+		// Online polys
+
+		File.WriteAllText(Path.Combine(polygonFolder, "online.ply"), $@"{string.Join("\r\n\r\n", firBoundaries.Select(kvp => WebeyeAirspaceDrawing.ToPolyfillPath($"{kvp.Key}_CTR", "CTR", [.. kvp.Value.SelectMany(p => p.Points)])))}
+
+
+		{string.Join("\r\n\r\n",
+		positionFirs.Values.SelectMany(v => v)
+			.Where(p => p["composePosition"] is not null && p["position"]?.GetValue<string>() is "APP" or "DEP" or "CTR" or "FSS" && p["regionMap"] is JsonArray map && map.Count > 1)
+			.Select(p => WebeyeAirspaceDrawing.ToPolyfillPath(p["composePosition"]!.GetValue<string>(), p["position"]!.GetValue<string>(), p["regionMap"]!.AsArray()))
+		)}
+
+		"
+		+ string.Join("\r\n\r\n",
+		centerAirports.Values.SelectMany(v => v).DistinctBy(ad => ad.Identifier)
+			.Select(ad => apBoundaryWays.TryGetValue(ad.Identifier, out var retval) ? (ad.Identifier, retval) : ((string, Way)?)null)
 			.Where(ap => ap is not null)
 			.Cast<(string Icao, Way Boundary)>()
-			.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Icao + "_TWR", "TWR", ap.Boundary))
+		.Select(ap => (
+				Pos: string.Join(' ',
+					positionFirs.Values.SelectMany(v => v)
+						.Where(p => p["airportId"]?.GetValue<string>() == ap.Icao && p["position"]?.GetValue<string>() == "TWR")
+						.Select(p => p["composePosition"]!.GetValue<string>())
+				),
+				Bounds: ap.Boundary
+			))
+			.Select(ap => WebeyeAirspaceDrawing.ToPolyfillPath(ap.Pos, "TWR", ap.Bounds))
 	)
+	);
+		Console.WriteLine($" Done!");
 #endif
-);
 
 		// Write ISCs
-		foreach (string fir in targetFirs)
+		Parallel.ForEach(targetFirs, async (fir, _, _) =>
 		{
-			string mvaFolder = Path.Combine(includeFolder, "mvas");
-			if (!Directory.Exists(mvaFolder))
-				Directory.CreateDirectory(mvaFolder);
-
 			Airport[] ifrAirports = [.. centerAirports[fir].Where(ad => ad is Airport ap && ap.IFR).Cast<Airport>()];
 
 			if (ifrAirports.Length == 0)
@@ -423,7 +420,7 @@ CA/{fir};CA/labels;CA/geos;CA/polygons;CA/procedures;CA/navaids;CA/mvas;CA/video
 			if (!Directory.Exists(firFolder))
 				Directory.CreateDirectory(firFolder);
 
-			string[] applicableVideoMaps = [.. videoMaps.Where(kvp => kvp.Value.Drawables.Any(g => g.ReferencePoints.Any(p => IsInFir(fir, p)))).Select(kvp => kvp.Key)];
+			string[] applicableVideoMaps = [.. videoMaps.Where(kvp => kvp.Value.Drawables.Any(g => g.ReferenceCoordinates.Any(p => IsInFir(fir, p)))).Select(kvp => kvp.Key)];
 
 			// Colours
 			string defineBlock = $@"[DEFINE]
@@ -439,16 +436,12 @@ STOPBAR;#FFB30000;
 			// ATC Positions
 			string atcBlock = "[ATC]\r\nF;atc.atc\r\n";
 			if (positionFirs.TryGetValue(fir, out var firPositions))
-			{
-				string allPositions = string.Join(' ', firPositions.Select(p => p["composePosition"]!.GetValue<string>()));
-				File.WriteAllLines(Path.Combine(firFolder, "atc.atc"), [
-					..firPositions.Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};{allPositions};"),
-					..atcPositions.Where(p => p["centerId"]?.GetValue<string>() == fir).Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};{allPositions};")
+				File.WriteAllLines(Path.Combine(firFolder, "atc.atc"), [..
+					firPositions.Select(p => $"{p["composePosition"]!.GetValue<string>()};{p["frequency"]!.GetValue<decimal>():000.000};C;")
 				]);
-			}
 
 			// Airports (main)
-			string airportBlock = "[AIRPORT]\r\nF;airports.ap\r\n";
+				string airportBlock = "[AIRPORT]\r\nF;airports.ap\r\n";
 			File.WriteAllLines(Path.Combine(firFolder, "airports.ap"), [..
 			centerAirports[fir].Select(ad => $"{ad.Identifier};{ad.Elevation.ToMSL().Feet};18000;{ad.Location.Latitude:00.0####};{ad.Location.Longitude:000.0####};{ad.Name.TrimEnd()};")
 #if OSM
@@ -522,7 +515,7 @@ F;airways.high
 
 				// Manual additions
 				..manualAdjustments.Where(a => a is AddAirway aw && aw.Type == AddAirway.AirwayType.High && aw.Points.Any(p => IsInFir(fir, p.Coordinate ?? new Coordinate()))).Cast<AddAirway>().SelectMany(aw => (string[])[
-					$"L;{aw.Identifier};{aw.Points.Skip(aw.Points.Length / 2).First().Coordinate!.Latitude:00.0####};{aw.Points.Skip(aw.Points.Length / 2).First().Coordinate!.Longitude:000.0####}",
+					$"L;{aw.Identifier};{aw.Points.Skip(aw.Points.Length / 2).First().Coordinate!.Latitude:00.0####};{aw.Points.Skip(aw.Points.Length / 2).First().Coordinate!.Longitude:000.0####};",
 					..aw.Points.Select(p => {
 						if (p.Coordinate is NamedCoordinate nc)
 							return $"T;{aw.Identifier};{nc.Name};{nc.Name};";
@@ -588,7 +581,7 @@ F;high.artcc
 				string.Join("\r\n",
 					positionFirs[fir].Where(p => p["position"]?.GetValue<string>() is "APP" && p["regionMap"] is JsonArray region && region.Count > 0 && p["airportId"] is not null)
 					.Select(p => WebeyeAirspaceDrawing.ToArtccPath(p["airportId"]!.GetValue<string>(), p["regionMap"]!.AsArray()))
-				) + "\r\n\r\n" + ad.ClassBPaths + "\r\n\r\n" + ad.ClassBLabels
+				)
 			);
 
 			// VFR Fixes
@@ -603,22 +596,22 @@ F;high.artcc
 			]);
 
 			// VFR Routes
-			vfrBlock += "[VFRROUTE]\r\nF;vfr.vrt\r\n\r\n";
+			vfrBlock += "[VFRRTEENR]\r\nF;vfr.vrt\r\n\r\n";
 
-			ICoordinate[][] applicableRoutes = [..
-				vfrRoutes.Where(r => r.Any(c => IsInFir(fir, c)))
+			(string Filter, ICoordinate[] Points)[] applicableRoutes = [..
+				vfrRoutes.Where(r => r.Points.Any(c => IsInFir(fir, c)))
 			];
 
 			File.WriteAllLines(
 				Path.Combine(firFolder, "vfr.vrt"),
-				Enumerable.Range(0, applicableRoutes.Length).Select(routeIdx =>
-					string.Join("\r\n", applicableRoutes[routeIdx].Select(r =>
+				applicableRoutes.Select((route, routeIdx) =>
+					string.Join("\r\n", route.Points.Concat(route.Points[1..^1].Reverse()).Select(r =>
 					{
 						if (r is NamedCoordinate nc)
-							return $"{routeIdx + 1};{nc.Name};{nc.Name};";
+							return $"{route.Filter};{routeIdx + 1};{nc.Name};{nc.Name};";
 
 						Coordinate c = r.GetCoordinate();
-						return $"{routeIdx + 1};{c.Latitude:00.0####};{c.Longitude:000.0####};";
+						return $"{route.Filter};{routeIdx + 1};{c.Latitude:00.0####};{c.Longitude:000.0####};";
 					})))
 			);
 
@@ -651,7 +644,7 @@ F;online.ply
 {polyfillBlock}");
 
 			Console.Write($"{fir} "); await Console.Out.FlushAsync();
-		}
+		});
 
 		Console.WriteLine(" All Done!");
 	}
@@ -706,7 +699,7 @@ F;online.ply
 			// Gates
 			Gates gates = new(
 				icao,
-				apOsm.GetFiltered(g => g is Way w && w["aeroway"] is "parking_position")
+				apOsm.GetFiltered(g => g["aeroway"] is "parking_position")
 			);
 			gtsLabels.AddRange(gates.Labels.Split("\r\n", StringSplitOptions.RemoveEmptyEntries));
 			File.WriteAllLines(Path.Combine(labelFolder, icao + ".gts"), [.. gtsLabels]);
@@ -778,7 +771,7 @@ F;online.ply
 			var (sidLines, sidFixes) = procs.AirportSidLines(airport.Identifier);
 			var (starLines, starFixes) = procs.AirportStarLines(airport.Identifier);
 			var (iapLines, iapFixes) = procs.AirportApproachLines(airport.Identifier);
-			
+
 			if (addedProcedures.TryGetValue(airport.Identifier, out var addedProcs))
 			{
 				foreach (var proc in addedProcs)
@@ -851,5 +844,27 @@ F;online.ply
 		});
 
 		return apProcFixes.ToFrozenDictionary();
+	}
+	static async Task<Osm> LoadOsmAsync()
+	{
+		for (int iterations = 0; iterations < 3; ++iterations)
+		{
+			try
+			{
+				DateTimeOffset start = DateTimeOffset.Now;
+				Osm res = await Osm.Load();
+				TimeSpan loadTime = DateTimeOffset.Now - start;
+				Console.Write($"OSM download succeeded in {loadTime.TotalMinutes:0} mins, {loadTime.Seconds} secs");
+				return res;
+			}
+			catch (IOException) { /* Sometimes things choke. */ }
+			catch (TimeoutException) { /* Sometimes things choke. */ }
+			catch (TaskCanceledException) { /* Sometimes things choke. */ }
+
+			Console.Write("OSM download failed... Retrying...");
+			await Task.Delay(TimeSpan.FromSeconds(15)); // Give it a breather.
+		}
+
+		throw new Exception("Could not download OSM data.");
 	}
 }

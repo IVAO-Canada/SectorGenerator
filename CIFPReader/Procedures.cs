@@ -27,7 +27,8 @@ public class Procedure
 	public virtual IEnumerable<Instruction?> SelectAllRoutes(Dictionary<string, HashSet<ICoordinate>> fixes) =>
 		instructions.AsEnumerable().Select(i => i);
 
-	public record Instruction(PathTermination Termination, IProcedureEndpoint? Endpoint, IProcedureVia? Via, ICoordinate? ReferencePoint, SpeedRestriction Speed, AltitudeRestriction Altitude, [property:JsonIgnore] bool OnGround = false)
+	[JsonConverter(typeof(InstructionJsonConverter))]
+	public record Instruction(PathTermination Termination, IProcedureEndpoint? Endpoint, IProcedureVia? Via, ICoordinate? ReferencePoint, SpeedRestriction Speed, AltitudeRestriction Altitude, bool OnGround = false)
 	{
 		public bool IsComplete(Coordinate position, Altitude altitude, decimal tolerance)
 		{
@@ -35,6 +36,80 @@ public class Procedure
 				return false;
 
 			return Endpoint?.IsConditionReached(Termination, (position, altitude, null), tolerance) ?? false;
+		}
+
+		public class InstructionJsonConverter : JsonConverter<Instruction>
+		{
+			public override Instruction Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+			{
+				if (reader.TokenType != JsonTokenType.StartObject || !reader.Read())
+					throw new JsonException();
+
+				PathTermination? pathTerm = null;
+				IProcedureEndpoint? ep = null;
+				IProcedureVia? via = null;
+				ICoordinate? refr = null;
+				SpeedRestriction? spd = null;
+				AltitudeRestriction? alt = null;
+
+				while (reader.TokenType != JsonTokenType.EndObject)
+				{
+					string propName = reader.GetString() ?? "";
+					if (!reader.Read())
+						throw new JsonException();
+
+					switch (propName)
+					{
+						case "term":
+							pathTerm = JsonSerializer.Deserialize<PathTermination>(ref reader, options);
+							break;
+
+						case "ep":
+							ep = JsonSerializer.Deserialize<IProcedureEndpoint>(ref reader, options);
+							break;
+
+						case "via":
+							via = JsonSerializer.Deserialize<IProcedureVia>(ref reader, options);
+							break;
+
+						case "ref":
+							refr = JsonSerializer.Deserialize<ICoordinate>(ref reader, options);
+							break;
+
+						case "spd":
+							spd = JsonSerializer.Deserialize<SpeedRestriction>(ref reader, options);
+							break;
+
+						case "alt":
+							alt = JsonSerializer.Deserialize<AltitudeRestriction>(ref reader, options);
+							break;
+
+						default: throw new JsonException();
+					}
+
+					if (!reader.Read())
+						break;
+				}
+
+				if (reader.TokenType != JsonTokenType.EndObject)
+					throw new JsonException();
+
+				return new(pathTerm ?? throw new JsonException(), ep, via, refr, spd ?? SpeedRestriction.Unrestricted, alt ?? AltitudeRestriction.Unrestricted);
+			}
+
+			public override void Write(Utf8JsonWriter writer, Instruction value, JsonSerializerOptions options)
+			{
+				writer.WriteStartObject();
+
+				writer.WritePropertyName("term"); JsonSerializer.Serialize(writer, value.Termination, options);
+				if (value.Endpoint is not null) { writer.WritePropertyName("ep"); JsonSerializer.Serialize(writer, value.Endpoint, options); }
+				if (value.Via is not null) { writer.WritePropertyName("via"); JsonSerializer.Serialize(writer, value.Via, options); }
+				if (value.ReferencePoint is not null) { writer.WritePropertyName("ref"); JsonSerializer.Serialize(writer, value.ReferencePoint, options); }
+				if (value.Speed != SpeedRestriction.Unrestricted) { writer.WritePropertyName("spd"); JsonSerializer.Serialize(writer, value.Speed, options); }
+				if (value.Altitude != AltitudeRestriction.Unrestricted) { writer.WritePropertyName("alt"); JsonSerializer.Serialize(writer, value.Altitude, options); }
+
+				writer.WriteEndObject();
+			}
 		}
 	}
 
@@ -174,6 +249,9 @@ public class SID : Procedure
 				};
 			}
 
+			line = line with { AltitudeRestriction = line.AltitudeRestriction ?? AltitudeRestriction.Unrestricted };
+			line = line with { SpeedRestriction = line.SpeedRestriction ?? SpeedRestriction.Unrestricted };
+
 			return line;
 		}
 
@@ -191,7 +269,7 @@ public class SID : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
+						rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					runwayTransitions.Add(lineHead.Transition, [.. rt]);
 					break;
@@ -203,7 +281,7 @@ public class SID : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
+						cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					commonRoute = [.. cr];
 					break;
@@ -216,7 +294,7 @@ public class SID : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						et.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
+						et.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes), line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					enrouteTransitions.Add(lineHead.Transition, [.. et]);
 					break;
@@ -243,9 +321,6 @@ public class SID : Procedure
 
 			if (lastReturned is not null)
 				yield return lastReturned;
-
-			if (!(char.IsDigit(refFix[^1]) || "LCR".Contains(refFix[^1])))
-				System.Diagnostics.Debugger.Break();
 
 			foreach (var instr in inboundTransition.Value)
 			{
@@ -365,9 +440,9 @@ public class SID : Procedure
 		HashSet<string?> outbounds = enrouteTransitions.Keys.Select(k => k == "ALL" ? null : k).ToHashSet();
 
 		if (inbounds.Count == 0)
-			inbounds = new(new string?[] { null });
+			inbounds = new([null]);
 		if (outbounds.Count == 0)
-			outbounds = new(new string?[] { null });
+			outbounds = new([null]);
 
 		return inbounds.SelectMany(i => outbounds.Select(o => (i, o)));
 	}
@@ -523,6 +598,9 @@ public class STAR : Procedure
 				};
 			}
 
+			line = line with { AltitudeRestriction = line.AltitudeRestriction ?? AltitudeRestriction.Unrestricted };
+			line = line with { SpeedRestriction = line.SpeedRestriction ?? SpeedRestriction.Unrestricted };
+
 			return line;
 		}
 
@@ -539,7 +617,7 @@ public class STAR : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
+						rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					runwayTransitions.Add(lineHead.Transition, [.. rt]);
 					break;
@@ -551,7 +629,7 @@ public class STAR : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
+						cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					commonRoute = [.. cr];
 					break;
@@ -563,7 +641,7 @@ public class STAR : Procedure
 					{
 						var line = fix(lines[linectr]);
 
-						et.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
+						et.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
 					}
 					enrouteTransitions.Add(lineHead.Transition, [.. et]);
 					break;
@@ -690,9 +768,9 @@ public class STAR : Procedure
 		HashSet<string?> outbounds = runwayTransitions.Keys.Select(k => k == "ALL" ? null : k).ToHashSet();
 
 		if (inbounds.Count == 0)
-			inbounds = new(new string?[] { null });
+			inbounds = new([null]);
 		if (outbounds.Count == 0)
-			outbounds = new(new string?[] { null });
+			outbounds = new([null]);
 
 		return inbounds.SelectMany(i => outbounds.Select(o => (i, o)));
 	}
@@ -820,7 +898,8 @@ public class Approach : Procedure
 					var =
 value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is ICoordinate c ? c : throw new Exception("Unable to pin magvar for IAP."))).GetCoordinate()))
 					   .Select(na =>
-						   na switch {
+						   na switch
+						   {
 							   VOR v => v.MagneticVariation,
 							   NavaidILS ni => ni.MagneticVariation,
 							   ILS i => i.LocalizerCourse.Variation,
@@ -869,6 +948,9 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 			if (line.Via is Racetrack rt && rt.Point is null)
 				throw new Exception();
 
+			line = line with { AltitudeRestriction = line.AltitudeRestriction ?? AltitudeRestriction.Unrestricted };
+			line = line with { SpeedRestriction = line.SpeedRestriction ?? SpeedRestriction.Unrestricted };
+
 			return line;
 		}
 
@@ -886,7 +968,7 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 						{
 							var line = fix(lines[linectr]);
 
-							rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
+							rt.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
 						}
 						catch (Exception aex)
 						{
@@ -905,7 +987,7 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 						{
 							var line = fix(lines[linectr]);
 
-							cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix is UnresolvedWaypoint uw ? uw.Resolve(fixes, new UnresolvedWaypoint(line.Airport)) : (ICoordinate?)line.ReferenceFix, line.SpeedRestriction, line.AltitudeRestriction));
+							cr.Add(new(line.FixInstruction, line.Endpoint, line.Via, line.ReferenceFix?.Resolve(fixes, new UnresolvedWaypoint(line.Airport)), line.SpeedRestriction, line.AltitudeRestriction));
 						}
 						catch (Exception aex)
 						{
@@ -979,7 +1061,7 @@ value.OrderBy(na => na.Position.DistanceTo((referencePoint ?? (line.Endpoint is 
 		HashSet<string?> inbounds = transitions.Keys.Select(k => k == "ALL" ? null : k).ToHashSet();
 
 		if (inbounds.Count == 0)
-			inbounds = new(new string?[] { null });
+			inbounds = new([null]);
 
 		return inbounds.Select(i => (i, (string?)null));
 	}

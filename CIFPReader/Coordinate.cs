@@ -52,7 +52,7 @@ public interface ICoordinate : IProcedureEndpoint
 }
 
 [JsonConverter(typeof(NamedCoordinateJsonConverter))]
-public record struct NamedCoordinate(string Name, Coordinate Position) : IProcedureEndpoint, ICoordinate
+public record struct NamedCoordinate(string Name, Coordinate Position) : IResolvableEndpoint, ICoordinate
 {
 	public readonly decimal Latitude => Position.Latitude;
 	public readonly decimal Longitude => Position.Longitude;
@@ -61,7 +61,8 @@ public record struct NamedCoordinate(string Name, Coordinate Position) : IProced
 
 	public readonly bool IsConditionReached(PathTermination termination, (Coordinate position, Altitude altitude, dynamic? reference) context, decimal tolerance) => 
 		Position.IsConditionReached(termination, context, tolerance);
-	
+	public readonly NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> _, UnresolvedWaypoint? reference = null) => this;
+
 	public class NamedCoordinateJsonConverter : JsonConverter<NamedCoordinate>
 	{
 		public override NamedCoordinate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)

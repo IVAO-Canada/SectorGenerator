@@ -275,14 +275,16 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 						pathTerm,
 						ep ?? (sl.WaypointIdentifier is null ? null : new NamedCoordinate(sl.WaypointIdentifier!, new(sl.WaypointLatitude!.Value, sl.WaypointLongitude!.Value))),
 						via,
-						sl.AltitudeDescription switch {
+						sl.AltitudeDescription switch
+						{
 							null => AltitudeRestriction.Unrestricted,
 							'B' => new(new AltitudeMSL(sl.Altitude2!.Value), new AltitudeMSL(sl.Altitude1!.Value)),
 							'+' => new(new AltitudeMSL(sl.Altitude1!.Value), null),
 							'-' => new(null, new AltitudeMSL(sl.Altitude1!.Value)),
 							_ => throw new NotImplementedException()
 						},
-						sl.SpeedLimitDescription switch {
+						sl.SpeedLimitDescription switch
+						{
 							null => SpeedRestriction.Unrestricted,
 							'+' => new(sl.SpeedLimit!.Value, null),
 							'-' => new(null, sl.SpeedLimit!.Value),
@@ -309,14 +311,16 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 						pathTerm,
 						ep ?? (sl.WaypointIdentifier is null ? null : new NamedCoordinate(sl.WaypointIdentifier!, new(sl.WaypointLatitude!.Value, sl.WaypointLongitude!.Value))),
 						via,
-						sl.AltitudeDescription switch {
+						sl.AltitudeDescription switch
+						{
 							null => AltitudeRestriction.Unrestricted,
 							'B' => new(new AltitudeMSL(sl.Altitude2!.Value), new AltitudeMSL(sl.Altitude1!.Value)),
 							'+' => new(new AltitudeMSL(sl.Altitude1!.Value), null),
 							'-' => new(null, new AltitudeMSL(sl.Altitude1!.Value)),
 							_ => throw new NotImplementedException()
 						},
-						sl.SpeedLimitDescription switch {
+						sl.SpeedLimitDescription switch
+						{
 							null => SpeedRestriction.Unrestricted,
 							'+' => new(sl.SpeedLimit!.Value, null),
 							'-' => new(null, sl.SpeedLimit!.Value),
@@ -353,14 +357,16 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 						ep ?? fix,
 						via,
 						sl.RecommandedNavaid,
-						sl.AltitudeDescription switch {
+						sl.AltitudeDescription switch
+						{
 							null => AltitudeRestriction.Unrestricted,
 							'B' or 'J' or 'I' or 'H' => new(new AltitudeMSL(sl.Altitude2!.Value), new AltitudeMSL(sl.Altitude1!.Value)),
 							'+' => new(new AltitudeMSL(sl.Altitude1!.Value), null),
 							'-' => new(null, new AltitudeMSL(sl.Altitude1!.Value)),
 							_ => throw new NotImplementedException()
 						},
-						sl.SpeedLimitDescription switch {
+						sl.SpeedLimitDescription switch
+						{
 							null => SpeedRestriction.Unrestricted,
 							'+' => new(sl.SpeedLimit!.Value, null),
 							'-' => new(null, sl.SpeedLimit!.Value),
@@ -580,7 +586,8 @@ public record RecordLine(string Header)
 	public RecordLine() : this("") { }
 
 	public static RecordLine? Parse(string line) =>
-		line[4] switch {
+		line[4] switch
+		{
 			'A' or 'U' => AirspaceLine.Parse(line),
 			'D' => Navaid.Parse(line),
 			'E' => EnrouteLine.Parse(line),
@@ -784,7 +791,8 @@ public record Racetrack(ICoordinate? Point, UnresolvedWaypoint? Waypoint, Course
 		if (state is null)
 		{
 			state = HoldState.Entry;
-			entry = (LeftTurns, -currentCourse.Angle(InboundCourse)) switch {
+			entry = (LeftTurns, -currentCourse.Angle(InboundCourse)) switch
+			{
 				(false, >= -70 and <= 110) or
 				(true, <= 70 and >= -110) => EntryType.Direct,
 				(false, < -70) or
@@ -1095,7 +1103,8 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 		else if ((char)description == 'X' && alt1 == alt2)
 			alt2 = null;
 
-		description = (char)description switch {
+		description = (char)description switch
+		{
 			' ' or 'X' => AltitudeDescription.At,
 			'J' or 'H' or 'V' => AltitudeDescription.Between,
 			'I' or 'G' => AltitudeDescription.At,
@@ -1107,7 +1116,8 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 		{
 			// A couple of strange procedures here. Likely irregularities, though this includes one into KDTW.
 
-			(description, alt1, alt2) = (alt1, alt2) switch {
+			(description, alt1, alt2) = (alt1, alt2) switch
+			{
 				(Altitude a, Altitude b) when a == b => (AltitudeDescription.AtOrAbove, a, null),
 				(Altitude a, Altitude b) when a < b => (AltitudeDescription.Between, a, b),
 				(Altitude a, Altitude b) when a > b => (AltitudeDescription.AtOrAbove, a, null),
@@ -1123,7 +1133,8 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 		else if (description != AltitudeDescription.Between && alt2 is not null)
 			throw new ArgumentOutOfRangeException(nameof(alt2), "Single altitude restrictions should not be passed two altitudes.");
 
-		return description switch {
+		return description switch
+		{
 			AltitudeDescription.Between when alt1.Feet > alt2?.Feet => new(alt2, alt1),
 			AltitudeDescription.Between => new(alt1, alt2),
 			AltitudeDescription.At => new(alt1, alt1),
@@ -1242,7 +1253,7 @@ public record SpeedRestriction(uint? Minimum, uint? Maximum)
 				throw new JsonException();
 
 			uint? minimum = reader.TokenType == JsonTokenType.Null ? null : reader.TokenType == JsonTokenType.Number ? reader.GetUInt32() : throw new JsonException();
-			
+
 			if (!reader.Read())
 				throw new JsonException();
 
@@ -1279,7 +1290,7 @@ public record SpeedRestriction(uint? Minimum, uint? Maximum)
 }
 
 [JsonConverter(typeof(UnresolvedWaypointJsonConverter))]
-public class UnresolvedWaypoint(string name) : IProcedureEndpoint
+public class UnresolvedWaypoint(string name) : IResolvableEndpoint
 {
 	public string Name { get; init; } = name;
 	protected Coordinate? Position { get; init; }
@@ -1294,6 +1305,29 @@ public class UnresolvedWaypoint(string name) : IProcedureEndpoint
 		fixes.Concretize(Name, refCoord: reference ?? Position);
 	public Navaid Resolve(Dictionary<string, HashSet<Navaid>> fixes, UnresolvedWaypoint? reference = null) =>
 		fixes.Concretize(Name, refString: reference?.Name);
+
+	public bool TryResolve(Dictionary<string, HashSet<ICoordinate>> fixes, [NotNullWhen(true)] out NamedCoordinate? coord) => TryResolve(fixes, out coord, new Coordinate(0, 0));
+	public bool TryResolve(Dictionary<string, HashSet<ICoordinate>> fixes, [NotNullWhen(true)] out NamedCoordinate? coord, Coordinate? reference = null)
+	{
+		if (Position?.Name(Name) is NamedCoordinate nc)
+		{
+			coord = nc;
+			return true;
+		}
+
+		return fixes.TryConcretize(Name, out coord, refCoord: reference);
+	}
+
+	public bool TryResolve(Dictionary<string, HashSet<ICoordinate>> fixes, [NotNullWhen(true)] out NamedCoordinate? coord, UnresolvedWaypoint? reference = null)
+	{
+		if (Position?.Name(Name) is NamedCoordinate nc)
+		{
+			coord = nc;
+			return true;
+		}
+
+		return fixes.TryConcretize(Name, out coord, refString: reference?.Name);
+	}
 
 	public bool IsConditionReached(PathTermination termination, (Coordinate position, Altitude altitude, dynamic? reference) context, decimal tolerance) =>
 		throw new Exception("Waypoint must be resolved.");
@@ -1322,7 +1356,8 @@ public static class Extensions
 
 		if (value.Count == 1)
 		{
-			coord = value.Single() switch {
+			coord = value.Single() switch
+			{
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null
@@ -1333,7 +1368,8 @@ public static class Extensions
 
 		if (refCoord is not null)
 		{
-			coord = value.MinBy(wp => wp.GetCoordinate().DistanceTo(refCoord.Value)) switch {
+			coord = value.MinBy(wp => wp.GetCoordinate().DistanceTo(refCoord.Value)) switch
+			{
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null
@@ -1346,7 +1382,8 @@ public static class Extensions
 			if (!fixes.TryGetValue(refString, out HashSet<ICoordinate>? fix))
 				throw new ArgumentException($"Unknown waypoint {refString}.", nameof(refString));
 
-			coord = value.MinBy(wp => fix.Min(rwp => wp.GetCoordinate().DistanceTo(rwp.GetCoordinate()))) switch {
+			coord = value.MinBy(wp => fix.Min(rwp => wp.GetCoordinate().DistanceTo(rwp.GetCoordinate()))) switch
+			{
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null
@@ -1393,7 +1430,8 @@ public static class Extensions
 		navaids.Values.SelectMany(ns => ns).OrderBy(na => refCoord.DistanceTo(na.Position)).Where(n => n.MagneticVariation is not null).Select(n => (n.Position, n.MagneticVariation!.Value)).First();
 
 	public static (ICoordinate Reference, decimal Variation) GetLocalMagneticVariation(this Dictionary<string, Aerodrome> aerodromes, Coordinate refCoord) =>
-		aerodromes.Values.OrderBy(a => refCoord.DistanceTo(a.Location.GetCoordinate())).First() switch {
+		aerodromes.Values.OrderBy(a => refCoord.DistanceTo(a.Location.GetCoordinate())).First() switch
+		{
 			Airport ap => (ap.Location, ap.MagneticVariation),
 			Heliport hp => (hp.Location, hp.MagneticVariation),
 			_ => throw new NotImplementedException()

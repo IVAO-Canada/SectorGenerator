@@ -183,7 +183,7 @@ public abstract record ProcedureLine(string Header, string Airport, string Name)
 public record SIDLine(
 	string Airport, string Name, SIDLine.SIDRouteType RouteType, string Transition,
 	PathTermination FixInstruction, IProcedureEndpoint? Endpoint, IProcedureVia? Via,
-	AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, IProcedureEndpoint? ReferenceFix) : ProcedureLine("PD", Airport, Name)
+	AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, IResolvableEndpoint? ReferenceFix) : ProcedureLine("PD", Airport, Name)
 {
 	public static new SIDLine Parse(string line)
 	{
@@ -245,7 +245,7 @@ public record SIDLine(
 			  );
 
 		AltitudeMSL? transitionAltitude = getAlt(line[94..99]);
-		SpeedRestriction? speedRestriction =
+		SpeedRestriction speedRestriction =
 			string.IsNullOrWhiteSpace(line[99..102])
 			? SpeedRestriction.Unrestricted
 			: new(null, uint.Parse(line[99..102]));
@@ -297,7 +297,7 @@ public record SIDLine(
 public record STARLine(
 	string Airport, string Name, STARLine.STARRouteType RouteType, string Transition, bool Initial,
 	PathTermination FixInstruction, IProcedureEndpoint? Endpoint, IProcedureVia? Via,
-	AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, IProcedureEndpoint? ReferenceFix) : ProcedureLine("PE", Airport, Name)
+	AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, IResolvableEndpoint? ReferenceFix) : ProcedureLine("PE", Airport, Name)
 {
 	public static new STARLine Parse(string line)
 	{
@@ -340,7 +340,6 @@ public record STARLine(
 			string.IsNullOrWhiteSpace(data)
 			? null
 			: data[0..2] == "FL" ? new FlightLevel(int.Parse(data[2..])) : new AltitudeMSL(int.Parse(data));
-
 
 		AltitudeRestriction altitudeRestriction =
 			line[82] == ' '
@@ -397,7 +396,7 @@ public record STARLine(
 
 public record ApproachLine(
 	string Airport, string Name, ApproachLine.ApproachRouteType RouteType, string Transition, PathTermination FixInstruction,
-	IProcedureEndpoint? Endpoint, IProcedureVia? Via, string? ReferencedNavaid, AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, IProcedureEndpoint? ReferenceFix
+	IProcedureEndpoint? Endpoint, IProcedureVia? Via, string? ReferencedNavaid, AltitudeRestriction AltitudeRestriction, SpeedRestriction SpeedRestriction, IResolvableEndpoint? ReferenceFix
 	) : ProcedureLine("PF", Airport, Name)
 {
 	public static new ApproachLine? Parse(string line)
@@ -526,6 +525,11 @@ public record ApproachLine(
 	}
 }
 
+public interface IResolvableEndpoint : IProcedureEndpoint
+{
+	public NamedCoordinate Resolve(Dictionary<string, HashSet<ICoordinate>> fixes, UnresolvedWaypoint? reference = null);
+}
+
 [JsonConverter(typeof(IProcedureEndpointJsonConverter))]
 public interface IProcedureEndpoint
 {
@@ -547,7 +551,8 @@ public interface IProcedureEndpoint
 				reader.Read();
 
 				IProcedureEndpoint retval =
-					 prop switch {
+					 prop switch
+					 {
 						 "distance" => JsonSerializer.Deserialize<Distance>(ref reader, options)!,
 						 "radial" => JsonSerializer.Deserialize<Radial>(ref reader, options)!,
 						 _ => throw new JsonException()
