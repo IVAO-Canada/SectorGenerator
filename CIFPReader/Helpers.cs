@@ -46,7 +46,8 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 				if (!Directory.Exists(outDir))
 					Directory.CreateDirectory(outDir);
 
-				Parallel.ForEach(filenames, async fp => {
+				Parallel.ForEach(filenames, async fp =>
+				{
 					using FileStream file = File.Create(Path.Combine(outDir, fp));
 					await (await client.GetStreamAsync(uriPrefix + fp)).CopyToAsync(file);
 					Interlocked.Increment(ref complete);
@@ -303,7 +304,8 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 
 		ConcurrentDictionary<string, HashSet<Procedure>> procs = [];
 
-		Task.WaitAll(Task.Run(() => {
+		Task.WaitAll(Task.Run(() =>
+		{
 			string procName = string.Empty, procAp = string.Empty;
 			List<AirwayFixLine> awAccumulator = [];
 			foreach (AirwayFixLine afl in awLines)
@@ -341,7 +343,8 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 
 				Airways[aw.Identifier].Add(aw);
 			}
-		}), Task.Run(() => {
+		}), Task.Run(() =>
+		{
 			string procName = string.Empty, procAp = string.Empty;
 			List<SIDLine> sidAccumulator = [];
 			foreach (SIDLine sl in sidSteps)
@@ -373,7 +376,8 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 					procs.TryAdd(sid.Name, []);
 				procs[sid.Name].Add(sid);
 			}
-		}), Task.Run(() => {
+		}), Task.Run(() =>
+		{
 			string procName = string.Empty, procAp = string.Empty;
 			List<STARLine> starAccumulator = [];
 			foreach (STARLine sl in starSteps)
@@ -405,7 +409,8 @@ public record CIFP(GridMORA[] MORAs, Airspace[] Airspaces, Dictionary<string, Ae
 					procs.TryAdd(star.Name, []);
 				procs[star.Name].Add(star);
 			}
-		}), Task.Run(() => {
+		}), Task.Run(() =>
+		{
 			string procName = string.Empty, procAp = string.Empty;
 			List<ApproachLine> iapAccumulator = [];
 			foreach (ApproachLine al in iapSteps)
@@ -449,7 +454,8 @@ public record RecordLine(string Client, string Header, int FileRecordNumber, int
 	public RecordLine() : this("", "", 0, 0) { }
 
 	public static RecordLine? Parse(string line) =>
-		line[4] switch {
+		line[4] switch
+		{
 			'A' or 'U' => AirspaceLine.Parse(line),
 			'D' => Navaid.Parse(line),
 			'E' => EnrouteLine.Parse(line),
@@ -653,7 +659,8 @@ public record Racetrack(ICoordinate? Point, UnresolvedWaypoint? Waypoint, Course
 		if (state is null)
 		{
 			state = HoldState.Entry;
-			entry = (LeftTurns, -currentCourse.Angle(InboundCourse)) switch {
+			entry = (LeftTurns, -currentCourse.Angle(InboundCourse)) switch
+			{
 				(false, >= -70 and <= 110) or
 				(true, <= 70 and >= -110) => EntryType.Direct,
 				(false, < -70) or
@@ -964,7 +971,8 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 		else if ((char)description == 'X' && alt1 == alt2)
 			alt2 = null;
 
-		description = (char)description switch {
+		description = (char)description switch
+		{
 			' ' or 'X' => AltitudeDescription.At,
 			'J' or 'H' or 'V' => AltitudeDescription.Between,
 			'I' or 'G' => AltitudeDescription.At,
@@ -976,7 +984,8 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 		{
 			// A couple of strange procedures here. Likely irregularities, though this includes one into KDTW.
 
-			(description, alt1, alt2) = (alt1, alt2) switch {
+			(description, alt1, alt2) = (alt1, alt2) switch
+			{
 				(Altitude a, Altitude b) when a == b => (AltitudeDescription.AtOrAbove, a, null),
 				(Altitude a, Altitude b) when a < b => (AltitudeDescription.Between, a, b),
 				(Altitude a, Altitude b) when a > b => (AltitudeDescription.AtOrAbove, a, null),
@@ -992,7 +1001,8 @@ public record AltitudeRestriction(Altitude? Minimum, Altitude? Maximum)
 		else if (description != AltitudeDescription.Between && alt2 is not null)
 			throw new ArgumentOutOfRangeException(nameof(alt2), "Single altitude restrictions should not be passed two altitudes.");
 
-		return description switch {
+		return description switch
+		{
 			AltitudeDescription.Between when alt1.Feet > alt2?.Feet => new(alt2, alt1),
 			AltitudeDescription.Between => new(alt1, alt2),
 			AltitudeDescription.At => new(alt1, alt1),
@@ -1214,7 +1224,8 @@ public static class Extensions
 
 		if (value.Count == 1)
 		{
-			coord = value.Single() switch {
+			coord = value.Single() switch
+			{
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null
@@ -1225,7 +1236,8 @@ public static class Extensions
 
 		if (refCoord is not null)
 		{
-			coord = value.MinBy(wp => wp.GetCoordinate().DistanceTo(refCoord.Value)) switch {
+			coord = value.MinBy(wp => wp.GetCoordinate().DistanceTo(refCoord.Value)) switch
+			{
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null
@@ -1238,7 +1250,8 @@ public static class Extensions
 			if (!fixes.TryGetValue(refString, out HashSet<ICoordinate>? fix))
 				throw new ArgumentException($"Unknown waypoint {refString}.", nameof(refString));
 
-			coord = value.MinBy(wp => fix.Min(rwp => wp.GetCoordinate().DistanceTo(rwp.GetCoordinate()))) switch {
+			coord = value.MinBy(wp => fix.Min(rwp => wp.GetCoordinate().DistanceTo(rwp.GetCoordinate()))) switch
+			{
 				NamedCoordinate nc => nc,
 				Coordinate c => new(wp, c),
 				_ => null
@@ -1285,7 +1298,8 @@ public static class Extensions
 		navaids.Values.SelectMany(ns => ns).OrderBy(na => refCoord.DistanceTo(na.Position)).Where(n => n.MagneticVariation is not null).Select(n => (n.Position, n.MagneticVariation!.Value)).First();
 
 	public static (ICoordinate Reference, decimal Variation) GetLocalMagneticVariation(this Dictionary<string, Aerodrome> aerodromes, Coordinate refCoord) =>
-		aerodromes.Values.OrderBy(a => refCoord.DistanceTo(a.Location.GetCoordinate())).First() switch {
+		aerodromes.Values.OrderBy(a => refCoord.DistanceTo(a.Location.GetCoordinate())).First() switch
+		{
 			Airport ap => (ap.Location, ap.MagneticVariation),
 			Heliport hp => (hp.Location, hp.MagneticVariation),
 			_ => throw new NotImplementedException()

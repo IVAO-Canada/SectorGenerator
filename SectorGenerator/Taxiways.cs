@@ -108,7 +108,7 @@ internal class Taxiways(string airport, Osm taxiways)
 		if (w.Nodes.Length < 2)
 			return [];
 
-		string name = w["ref"] ?? "";
+		string name = w["ref"] ?? w["name"] ?? "";
 		List<Node> points = [];
 
 		Node last = w.Nodes[0];

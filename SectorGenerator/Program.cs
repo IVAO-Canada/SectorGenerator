@@ -37,7 +37,7 @@ public class Program
 		Console.WriteLine(" Done!");
 
 #if OSM
-		Console.Write("Queueing OSM downloads..."); await Console.Out.FlushAsync();
+		Console.Write("Queueing OSM data download..."); await Console.Out.FlushAsync();
 		Osm? osm = null;
 		Task osmLoader = Task.Run(async () => osm = await LoadOsmAsync());
 		Console.WriteLine(" Done!");
@@ -238,7 +238,8 @@ public class Program
 					continue;
 				}
 
-				add(facility[..2] switch {
+				add(facility[..2] switch
+				{
 					"TJ" => "ZSU",
 					"PH" => "PHZH",
 					"PA" => "PAZA",
@@ -298,7 +299,8 @@ public class Program
 			Console.WriteLine(" Failed! (bypassing)");
 		else
 		{
-			IEnumerable<(string FilePath, string Contents)> mrvaFiles = mrvas!.Volumes.AsParallel().AsUnordered().Select(arg => {
+			IEnumerable<(string FilePath, string Contents)> mrvaFiles = mrvas!.Volumes.AsParallel().AsUnordered().Select(arg =>
+			{
 				try
 				{
 					var (fn, volume) = arg;
@@ -312,7 +314,7 @@ public class Program
 
 						// Add all the segments for that volume.
 						foreach (var bp in seg.BoundaryPoints)
-								mvaFile.AppendLine($"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};");
+							mvaFile.AppendLine($"T;{seg.Name};{bp.Latitude:00.0####};{bp.Longitude:000.0####};");
 					}
 
 					return (FilePath: Path.Combine(mvaFolder, fn + ".mva"), Contents: mvaFile.ToString());
@@ -379,7 +381,8 @@ public class Program
 		Console.WriteLine($" Done!");
 		Console.Write("Generating polygons..."); await Console.Out.FlushAsync();
 
-		var polygonBlocks = apOsms.AsParallel().AsUnordered().Select(input => {
+		var polygonBlocks = apOsms.AsParallel().AsUnordered().Select(input =>
+		{
 			var (icao, apOsm) = input;
 			StringBuilder tfls = new();
 
@@ -474,7 +477,8 @@ public class Program
 #endif
 
 		// Write ISCs
-		Parallel.ForEach(faaArtccs, async (artcc, _, _) => {
+		Parallel.ForEach(faaArtccs, async (artcc, _, _) =>
+		{
 			Airport[] ifrAirports = [.. centerAirports[artcc].Where(ad => ad is Airport ap && ap.IFR).Cast<Airport>()];
 
 			if (ifrAirports.Length == 0)
@@ -689,7 +693,8 @@ F;high.artcc
 			File.WriteAllLines(
 				Path.Combine(artccFolder, "vfr.vrt"),
 				applicableRoutes.Select((route, routeIdx) =>
-					string.Join("\r\n", route.Points.Concat(route.Points[1..^1].Reverse()).Select(r => {
+					string.Join("\r\n", route.Points.Concat(route.Points[1..^1].Reverse()).Select(r =>
+					{
 						if (r is NamedCoordinate nc)
 							return $"{route.Filter};{routeIdx + 1};{nc.Name};{nc.Name};";
 
@@ -833,7 +838,8 @@ F;online.ply
 		);
 	}
 
-	static void WriteVideoMaps(Dictionary<string, (string Colour, HashSet<IDrawableGeo> Drawables)> layers, string geoFolder) => Parallel.ForEach(layers, kvp => {
+	static void WriteVideoMaps(Dictionary<string, (string Colour, HashSet<IDrawableGeo> Drawables)> layers, string geoFolder) => Parallel.ForEach(layers, kvp =>
+	{
 		string layerName = kvp.Key;
 		StringBuilder fileContents = new();
 		fileContents.AppendLine($"// {layerName} - {kvp.Value.Drawables.Count} geos");
@@ -843,7 +849,7 @@ F;online.ply
 			ICoordinate? last = null;
 			fileContents.AppendLine($"// {geo.GetType().Name}");
 
-			foreach (ICoordinate? next in geo.Draw().Take(10000))
+			foreach (ICoordinate? next in geo.Draw())
 			{
 				if (next is null)
 					fileContents.AppendLine("// BREAK");
@@ -870,7 +876,8 @@ F;online.ply
 		File.WriteAllLines(Path.Combine(procedureFolder, "KSCT.sid"), tecLines);
 		apProcFixes["KSCT"] = [.. tecFixes];
 
-		Parallel.ForEach(cifp.Aerodromes.Values, airport => {
+		Parallel.ForEach(cifp.Aerodromes.Values, airport =>
+		{
 			var (sidLines, sidFixes) = procs.AirportSidLines(airport.Identifier);
 			var (starLines, starFixes) = procs.AirportStarLines(airport.Identifier);
 			var (iapLines, iapFixes) = procs.AirportApproachLines(airport.Identifier);

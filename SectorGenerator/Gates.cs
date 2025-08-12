@@ -8,8 +8,8 @@ internal class Gates(string airport, Osm taxiways)
 
 	public string Labels => string.Join(
 		"\r\n",
-		_osm.WaysAndBoundaries().Where(w => w.Tags.ContainsKey("ref")).SelectMany(Taxiways.SpacePointsOnWay)
-		.Concat(_osm.Nodes.Values.Where(n => n.Tags.ContainsKey("ref")).Select(n => (Label: n["ref"] ?? "", n.Latitude, n.Longitude)))
+		_osm.WaysAndBoundaries().Where(w => (w["ref"] ?? w["name"]) is not null).SelectMany(Taxiways.SpacePointsOnWay)
+		.Concat(_osm.Nodes.Values.Where(n => (n["ref"] ?? n["name"]) is not null).Select(n => (Label: n["ref"] ?? n["name"] ?? "", n.Latitude, n.Longitude)))
 		.Select(l => $"{l.Label};{airport};{l.Latitude:00.0######};{l.Longitude:000.0######};")
 	);
 
