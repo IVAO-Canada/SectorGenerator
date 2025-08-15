@@ -519,6 +519,9 @@ internal static class WebeyeAirspaceDrawing
 
 	public static string ToPolyfillPath(string position, string facility, (double Lat, double Lon)[] points)
 	{
+		if (points.Length is 0)
+			return "";
+
 		string color = facility switch {
 			"CTR" or "FSS" => "#151A1D",    // #7B9AAF
 			"APP" or "DEP" => "#131C27",    // #70A5EC
